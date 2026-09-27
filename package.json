@@ -1,0 +1,20 @@
+{
+  "name": "bunny-killer-4",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_ENV=development vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "NODE_ENV=test vitest run",
+    "build:single": "npm run build && node scripts/single-file.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
+  }
+}

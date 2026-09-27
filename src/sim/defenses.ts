@@ -1,0 +1,163 @@
+// Defenses, dogs, and turret pebbles.
+import { BUNNIES, defenseStats, DOG_SPEED, PEBBLE_SPEED, SPRINKLER_PUSH } from '../config';
+import type { Game } from '../game';
+import type { Bunny } from '../types';
+import { N, tileX, tileY } from '../world';
+import { knockBack, spook } from './bunnies';
+
+export function updateDefenses(g: Game, dt: number): void {
+  const live = g.phase === 'round' || g.phase === 'sundown';
+  for (let i = 0; i < N; i++) {
+    const s = g.tiles[i].structure;
+    if (!s) continue;
+    s.anim += dt;
+    if (s.cd > 0) s.cd -= dt;
+    if (!live || s.cd > 0) continue;
+    const def = defenseStats(s.kind, s.level);
+    const cx = tileX(i) + 0.5;
+    const cy = tileY(i) + 0.5;
+    switch (s.kind) {
+      case 'trap': {
+        const victim = g.bunnies.find(
+          (b) => !b.dead && g.isSurfaced(b) && b.state !== 'exit' && Math.hypot(b.x - cx, b.y - cy) <= def.radius,
+        );
+        if (victim) {
+          g.damageBunny(victim, def.damage);
+          s.cd = def.period;
+          s.anim = 0;
+          g.emit({ t: 'snap', x: cx, y: cy });
+        }
+        break;
+      }
+      case 'scarecrow': {
+        let scared = 0;
+        for (const b of g.bunnies) {
+          if (!scareable(g, b) || Math.hypot(b.x - cx, b.y - cy) > def.radius) continue;
+          spook(b, cx, cy, def.duration);
+          scared++;
+        }
+        if (scared > 0) {
+          s.cd = def.period;
+          s.anim = 0;
+          g.emit({ t: 'scare', x: cx, y: cy, r: def.radius });
+        }
+        break;
+      }
+      case 'sprinkler': {
+        let soaked = 0;
+        for (const b of g.bunnies) {
+          if (b.dead || !g.isSurfaced(b) || BUNNIES[b.kind].boss || b.state === 'exit') continue;
+          if (Math.hypot(b.x - cx, b.y - cy) > def.radius) continue;
+          knockBack(b, cx, cy, SPRINKLER_PUSH);
+          b.wet = def.duration;
+          soaked++;
+        }
+        if (soaked > 0) {
+          s.cd = def.period;
+          s.anim = 0;
+          g.emit({ t: 'spray', x: cx, y: cy, r: def.radius });
+        }
+        break;
+      }
+      case 'turret': {
+        const target = nearest(g, cx, cy, def.radius);
+        if (target) {
+          g.projectiles.push({ x: cx, y: cy - 0.7, tx: target.x, ty: target.y - 0.3, target: target.id, damage: def.damage, done: false });
+          s.cd = def.period;
+          s.anim = 0;
+          g.emit({ t: 'shoot', x: cx, y: cy });
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  if (live) {
+    updateDogs(g, dt);
+    updateProjectiles(g, dt);
+  }
+}
+
+function scareable(g: Game, b: Bunny): boolean {
+  if (b.dead || !g.isSurfaced(b) || BUNNIES[b.kind].boss) return false;
+  return b.state === 'seek' || b.state === 'eat' || (b.state === 'chew' && b.resume === 'seek');
+}
+
+function nearest(g: Game, x: number, y: number, r: number): Bunny | null {
+  let best: Bunny | null = null;
+  let bestD = r;
+  for (const b of g.bunnies) {
+    if (b.dead || !g.isSurfaced(b)) continue;
+    const d = Math.hypot(b.x - x, b.y - y);
+    if (d <= bestD) {
+      bestD = d;
+      best = b;
+    }
+  }
+  return best;
+}
+
+function updateDogs(g: Game, dt: number): void {
+  for (const d of g.dogs) {
+    const house = g.tiles[d.home].structure;
+    const def = defenseStats('doghouse', house?.level ?? 1);
+    d.cd = Math.max(0, d.cd - dt);
+    const hx = tileX(d.home) + 0.5;
+    const hy = tileY(d.home) + 1.05;
+    let target = d.target >= 0 ? g.bunnies.find((b) => b.id === d.target) : undefined;
+    if (!target || target.dead || !g.isSurfaced(target) || Math.hypot(target.x - hx, target.y - hy) > def.radius) {
+      target = nearest(g, hx, hy, def.radius) ?? undefined;
+      d.target = target ? target.id : -1;
+    }
+    const gx = target ? target.x : hx;
+    const gy = target ? target.y : hy;
+    const dx = gx - d.x;
+    const dy = gy - d.y;
+    const dist = Math.hypot(dx, dy);
+    d.moving = dist > 0.3;
+    if (d.moving) {
+      const step = Math.min(dist, DOG_SPEED * dt);
+      d.x += (dx / dist) * step;
+      d.y += (dy / dist) * step;
+      // the leash
+      const lx = d.x - hx;
+      const ly = d.y - hy;
+      const ld = Math.hypot(lx, ly);
+      if (ld > def.radius) {
+        d.x = hx + (lx / ld) * def.radius;
+        d.y = hy + (ly / ld) * def.radius;
+      }
+      if (Math.abs(dx) > 0.05) d.facing = dx > 0 ? 1 : -1;
+      d.run += dt;
+    }
+    if (target && dist <= 0.55 && d.cd <= 0) {
+      g.damageBunny(target, def.damage);
+      d.cd = def.period;
+      g.emit({ t: 'bite', x: d.x, y: d.y });
+    }
+  }
+}
+
+function updateProjectiles(g: Game, dt: number): void {
+  for (const p of g.projectiles) {
+    const t = g.bunnies.find((b) => b.id === p.target);
+    const alive = t && !t.dead && g.isSurfaced(t);
+    if (alive) {
+      p.tx = t.x;
+      p.ty = t.y - 0.3;
+    }
+    const dx = p.tx - p.x;
+    const dy = p.ty - p.y;
+    const d = Math.hypot(dx, dy);
+    const step = PEBBLE_SPEED * dt;
+    if (d <= step + 0.05) {
+      if (alive) g.damageBunny(t, p.damage);
+      p.done = true;
+    } else {
+      p.x += (dx / d) * step;
+      p.y += (dy / d) * step;
+    }
+  }
+  g.projectiles = g.projectiles.filter((p) => !p.done);
+}

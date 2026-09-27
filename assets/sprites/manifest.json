@@ -1,0 +1,203 @@
+[
+ {
+  "name": "bunnies/digger_mound",
+  "prompt": "a small mound of freshly dug brown dirt with two gray rabbit ear tips poking out of the top",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "bunnies/fat_sit",
+  "prompt": "an extremely fat, perfectly round rabbit shaped like a loaf of bread, side view facing right, fluffy caramel-orange fur, chubby cheeks, tiny short ears, stubby legs, smug sleepy face",
+  "type": "creature",
+  "size": 40,
+  "direction": "east"
+ },
+ {
+  "name": "bunnies/boss_sit",
+  "prompt": "a huge hulking mutant rabbit with glowing radioactive green fur, side view facing right, bulging muscles, glowing red eyes, one jagged torn ear, crackling green energy sparks, menacing",
+  "type": "creature",
+  "size": 64,
+  "direction": "east"
+ },
+ {
+  "name": "misc/dog_stand",
+  "prompt": "a friendly beagle farm dog standing, side view facing right, brown black and white coat, long floppy ears, red collar, tail up",
+  "type": "creature",
+  "size": 32,
+  "direction": "east"
+ },
+ {
+  "name": "crops/seed",
+  "prompt": "a small neat mound of freshly tilled dark soil with a few seeds on top",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/sprout",
+  "prompt": "a tiny green seedling with two small round leaves sprouting from a small mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/radish_young",
+  "prompt": "a young radish plant: a small bunch of bright green leaves growing from a mound of dark soil, no root visible",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/radish_ripe",
+  "prompt": "a ripe round magenta-red radish half out of a mound of dark soil, crisp green leaves on top",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/lettuce_young",
+  "prompt": "a small young lettuce seedling, a rosette of light green leaves in a mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/lettuce_ripe",
+  "prompt": "a big round head of fresh green butter lettuce with ruffled leaves, in a mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/carrot_young",
+  "prompt": "a young carrot plant: small feathery green carrot tops growing from a mound of dark soil, no carrot visible",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/corn_young",
+  "prompt": "a young knee-high green corn stalk with a few long leaves growing from a mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/corn_ripe",
+  "prompt": "a tall green corn stalk with a ripe yellow ear of corn peeking from its husk and a golden tassel on top, growing from a mound of dark soil",
+  "type": "item",
+  "size": 48
+ },
+ {
+  "name": "crops/pumpkin_young",
+  "prompt": "a young pumpkin vine with big green leaves, a curly tendril, a yellow blossom and a tiny green pumpkin, on a mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/pumpkin_ripe",
+  "prompt": "a big round ripe orange pumpkin with deep ribs, a curly green stem and one leaf, sitting on a mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/strawberry_young",
+  "prompt": "a young strawberry plant with serrated green leaves and small white flowers, no fruit, in a mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "crops/strawberry_ripe",
+  "prompt": "a bushy strawberry plant heavy with plump ripe red strawberries and a few white flowers, in a mound of dark soil",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "defenses/trap_open",
+  "prompt": "an open steel spring snap trap with jagged teeth set flat on the ground, a yellow pressure plate in the middle, seen from a high three-quarter angle",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "defenses/scarecrow",
+  "prompt": "a classic farm scarecrow on a wooden cross post: burlap sack head with black button eyes and a stitched smile, battered straw hat, red plaid flannel shirt, straw poking out of the sleeves and collar, arms spread along the crossbar, no hair",
+  "type": "item",
+  "size": 48
+ },
+ {
+  "name": "defenses/sprinkler",
+  "prompt": "a green garden lawn sprinkler: a round rotating sprinkler with two spinning spray arms on a small weighted base, a few droplets of water flying off the arms",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "defenses/turret",
+  "prompt": "a large wooden slingshot catapult standing upright on the ground: a big Y-shaped forked wooden frame with a stretched rubber band and a leather pouch loaded with a round pebble, mounted on a small square wooden base, a little pile of pebbles beside it",
+  "type": "item",
+  "size": 48
+ },
+ {
+  "name": "defenses/doghouse",
+  "prompt": "a wooden doghouse with a red shingled roof, an arched dark doorway, a little name sign over the door, and a dog food bowl beside it",
+  "type": "item",
+  "size": 48
+ },
+ {
+  "name": "scenery/farmhouse",
+  "prompt": "a cozy two-story farmhouse with white clapboard walls, a red shingled roof, a brick chimney, a front porch with a green door, windows with flower boxes, three-quarter front view",
+  "type": "item",
+  "size": 96
+ },
+ {
+  "name": "scenery/tree_oak",
+  "prompt": "a big round leafy oak tree with a thick knotted trunk and exposed roots",
+  "type": "item",
+  "size": 64
+ },
+ {
+  "name": "scenery/tree_apple",
+  "prompt": "a round apple tree full of shiny red apples with a sturdy trunk",
+  "type": "item",
+  "size": 64
+ },
+ {
+  "name": "scenery/bush",
+  "prompt": "a round leafy green bush with a few red berries",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "scenery/rocks",
+  "prompt": "a small cluster of gray field stones with patches of green moss",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "scenery/flowers",
+  "prompt": "a small patch of wildflowers: white daisies, red poppies and yellow buttercups on green stems",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "scenery/stump",
+  "prompt": "an old mossy tree stump with visible growth rings and a small red mushroom",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "scenery/haybale",
+  "prompt": "a round golden hay bale with loose straw",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "scenery/crater",
+  "prompt": "a smoking asteroid impact crater: scorched brown dirt rim around a deep pit, a cracked dark gray space rock in the center glowing with bright green veins, seen from a high three-quarter angle",
+  "type": "item",
+  "size": 96
+ },
+ {
+  "name": "scenery/burrow",
+  "prompt": "a rabbit burrow: a dark round hole in the ground ringed by a small mound of dug-up dirt, seen from a high three-quarter angle",
+  "type": "item",
+  "size": 32
+ },
+ {
+  "name": "scenery/pond",
+  "prompt": "a small round farm pond with clear blue water, lily pads, a pink water lily and reeds at the edge, seen from a high three-quarter angle",
+  "type": "item",
+  "size": 64
+ }
+]

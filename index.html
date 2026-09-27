@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bunny Killer 4</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="menubar">
+      <div class="mb" data-menu="bunny">
+        <span class="mb-icon" id="mb-icon"></span>
+        <div class="dropdown">
+          <div class="mi" data-action="about">About Bunny Killer 4…</div>
+        </div>
+      </div>
+      <div class="mb" data-menu="game">
+        Game
+        <div class="dropdown">
+          <div class="mi" data-action="new">New Game…</div>
+          <div class="mi" data-action="title">Title Screen</div>
+          <div class="mi" data-action="scores">High Scores…</div>
+          <div class="mi" data-action="retire">Retire the Farm…</div>
+          <div class="sep"></div>
+          <div class="mi" data-action="pause"><span>Pause</span><span class="key">P</span></div>
+          <div class="mi" data-action="speed"><span id="mi-speed">Fast Forward</span><span class="key">F</span></div>
+          <div class="mi" data-action="mute"><span id="mi-mute">Sound Off</span><span class="key">M</span></div>
+          <div class="mi" data-action="music"><span id="mi-music">Music Off</span><span class="key">N</span></div>
+        </div>
+      </div>
+      <div class="mb" data-menu="help">
+        Help
+        <div class="dropdown">
+          <div class="mi" data-action="balloons"><span id="mi-balloons">Show Balloons</span></div>
+          <div class="sep"></div>
+          <div class="mi" data-action="help">How to Play…</div>
+          <div class="mi" data-action="tutorial">Replay the Tutorial</div>
+        </div>
+      </div>
+      <div id="mb-clock"></div>
+    </div>
+
+    <div id="desk">
+      <div class="window" id="farm-win">
+        <div class="titlebar"><span class="closebox"></span><span class="title" id="farm-title">Bunny Killer 4</span></div>
+        <div class="content">
+          <canvas id="game"></canvas>
+          <div id="banner"></div>
+          <div id="toast"></div>
+        </div>
+      </div>
+      <div id="side">
+        <div class="window" id="store-win">
+          <div class="titlebar"><span class="closebox"></span><span class="title" id="store-title">Farm Store</span></div>
+          <div class="content" id="store"></div>
+        </div>
+        <div class="window" id="info-win">
+          <div class="titlebar"><span class="closebox"></span><span class="title">Almanac</span></div>
+          <div class="content" id="info"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-layer"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

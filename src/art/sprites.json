@@ -1,0 +1,270 @@
+{
+ "bunny_common_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_common_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_common_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_common_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_common_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_common_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_common_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_common_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_jack_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_digger_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_fat": {
+  "w": 36,
+  "h": 33
+ },
+ "bunny_boss": {
+  "w": 45,
+  "h": 58
+ },
+ "digger_mound": {
+  "w": 28,
+  "h": 26
+ },
+ "dog_0": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_1": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_2": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_3": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_4": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_5": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_6": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_7": {
+  "w": 25,
+  "h": 24
+ },
+ "dog_stand": {
+  "w": 23,
+  "h": 23
+ },
+ "crop_seed": {
+  "w": 28,
+  "h": 24
+ },
+ "crop_sprout": {
+  "w": 24,
+  "h": 26
+ },
+ "crop_radish_young": {
+  "w": 20,
+  "h": 28
+ },
+ "crop_radish_ripe": {
+  "w": 26,
+  "h": 30
+ },
+ "crop_lettuce_young": {
+  "w": 18,
+  "h": 22
+ },
+ "crop_lettuce_ripe": {
+  "w": 28,
+  "h": 28
+ },
+ "crop_carrot_young": {
+  "w": 20,
+  "h": 27
+ },
+ "crop_carrot_ripe": {
+  "w": 22,
+  "h": 28
+ },
+ "crop_corn_young": {
+  "w": 26,
+  "h": 27
+ },
+ "crop_corn_ripe": {
+  "w": 24,
+  "h": 42
+ },
+ "crop_pumpkin_young": {
+  "w": 22,
+  "h": 27
+ },
+ "crop_pumpkin_ripe": {
+  "w": 25,
+  "h": 28
+ },
+ "crop_strawberry_young": {
+  "w": 26,
+  "h": 27
+ },
+ "crop_strawberry_ripe": {
+  "w": 28,
+  "h": 25
+ },
+ "def_scarecrow": {
+  "w": 34,
+  "h": 46
+ },
+ "def_sprinkler": {
+  "w": 26,
+  "h": 21
+ },
+ "def_turret": {
+  "w": 34,
+  "h": 41
+ },
+ "def_doghouse": {
+  "w": 44,
+  "h": 37
+ },
+ "def_trap_open": {
+  "w": 30,
+  "h": 23
+ },
+ "def_trap_shut": {
+  "w": 30,
+  "h": 23
+ },
+ "sc_farmhouse": {
+  "w": 82,
+  "h": 77
+ },
+ "sc_tree_oak": {
+  "w": 52,
+  "h": 57
+ },
+ "sc_tree_apple": {
+  "w": 52,
+  "h": 58
+ },
+ "sc_bush": {
+  "w": 24,
+  "h": 24
+ },
+ "sc_rocks": {
+  "w": 28,
+  "h": 16
+ },
+ "sc_flowers": {
+  "w": 25,
+  "h": 23
+ },
+ "sc_stump": {
+  "w": 30,
+  "h": 30
+ },
+ "sc_haybale": {
+  "w": 30,
+  "h": 22
+ },
+ "sc_crater": {
+  "w": 90,
+  "h": 84
+ },
+ "sc_burrow": {
+  "w": 31,
+  "h": 16
+ },
+ "sc_pond": {
+  "w": 60,
+  "h": 48
+ }
+}
