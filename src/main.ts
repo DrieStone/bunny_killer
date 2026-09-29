@@ -2,8 +2,8 @@
 import { Sfx } from './audio';
 import { Classic, type ClassicEvent } from './classic';
 import { Music, type Song } from './music';
-import { cropPlural, type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
-import { FARMS, type MapKind } from './world';
+import { cropPlural, DAILY, type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
+import { dailyFor, FARMS, type MapKind } from './world';
 import { Game } from './game';
 import { Renderer, type View } from './render/renderer';
 import { loadSprites } from './render/sprites';
@@ -42,8 +42,14 @@ let classicResultsShown = false;
 const balloons = new Balloons(); // Help > Show Balloons
 const tutorial = new Tutorial(new Balloons(), canvas); // its own balloon, so the two never fight
 
+/** Save the farm (a Daily Farm has its own slot, so it never clobbers yours). */
 function persist(): void {
-  if (game.phase === 'planning') store.writeSave(game.toSave());
+  if (game.phase === 'planning') save();
+}
+
+function save(): void {
+  if (game.daily) store.writeDailySave(game.toSave());
+  else store.writeSave(game.toSave());
 }
 
 function freshStart(): void {
@@ -66,6 +72,22 @@ const hooks: UiHooks = {
     ui.banner(mode === 'hard' ? 'Day 1 · Hard Mode' : 'Day 1', `${FARMS[map].name} · plant some seeds, then start the day`);
   },
   lastFarm: () => settings.lastFarm,
+  newDaily() {
+    const d = dailyFor();
+    const saved = store.loadDailySave(d.key);
+    if (saved) game.loadSave(saved);
+    else {
+      store.clearDailySave();
+      game.newDaily(d);
+    }
+    freshStart();
+    persist();
+    ui.banner(`Daily Farm #${d.number}`, `${FARMS[d.map].name} · ${DAILY.days} days: how much can you harvest?`, 2.4);
+  },
+  daily: () => {
+    const d = dailyFor();
+    return { ...d, best: store.loadDailyBest(d.key), resumable: store.loadDailySave(d.key) !== null };
+  },
   hardOpen: store.hardModeOpen,
   continueGame() {
     const save = store.loadSave();
@@ -90,7 +112,7 @@ const hooks: UiHooks = {
     }
     ui.select(null);
     game.startRound();
-    store.writeSave(game.toSave()); // quitting mid-day replays the day from here
+    save(); // quitting mid-day replays the day from here
     if (game.lastNight) ui.banner('The Last Night', 'Bonk every Asteroid Buck before dawn', 2.4);
     else ui.banner(`Day ${game.round}`, 'Here they come!', 1.3);
   },
@@ -206,6 +228,17 @@ function onPhase(from: Phase, to: Phase): void {
   if (to === 'summary') {
     store.recordBest(game.stats.harvest, game.round);
     ui.showSummary();
+  }
+  if (to === 'gameover' && game.daily) {
+    // a Daily Farm: ten days (or bust), a score, and today's best; your own farm and high scores are untouched
+    store.clearDailySave();
+    const result = {
+      score: game.stats.harvest, kills: game.stats.kills, golden: game.stats.golden ?? 0, orders: game.stats.orders ?? 0,
+      bucks: game.stats.bossesBeaten, days: game.round,
+    };
+    const fresh = store.recordDaily(game.daily, result);
+    ui.showDailyResults(result, fresh);
+    return;
   }
   if (to === 'gameover' || to === 'victory') {
     const won = to === 'victory';

@@ -91,6 +91,11 @@ export function fruitsPerDay(kind: CropKind, speed = 1): number {
   return regrow ? Math.max(1, Math.floor((ROUND_SECONDS * speed) / regrow + 1e-9)) : 1;
 }
 
+// ---------------------------------------------------------------- the Daily Farm
+
+/** Everyone gets the same farm on the same date: ten days, and the score is the harvest. */
+export const DAILY = { days: 10, epoch: Date.UTC(2026, 0, 1) };
+
 // ---------------------------------------------------------------- combos: defenses that work better together
 
 /**

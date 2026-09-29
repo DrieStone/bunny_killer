@@ -8,6 +8,8 @@ const SETTINGS_KEY = 'bk4.settings';
 const SCORES_KEY = 'bk4.scores';
 const CLASSIC_KEY = 'bk4.classicBest';
 const HARD_KEY = 'bk4.hardOpen';
+const DAILY_SAVE_KEY = 'bk4.dailySave';
+const DAILY_KEY = 'bk4.daily';
 
 export interface Best {
   score: number; // lifetime harvest credits
@@ -97,6 +99,46 @@ export function addScore(entry: ScoreEntry): number {
   const top = list.slice(0, 10);
   write(SCORES_KEY, top);
   return top.indexOf(entry);
+}
+
+// ---------------------------------------------------------------- the Daily Farm: its own save slot, and today's best
+
+export function loadDailySave(key: string): SaveData | null {
+  const d = migrateSave(read<SaveData>(DAILY_SAVE_KEY));
+  return d && d.daily === key ? d : null;
+}
+
+export const writeDailySave = (d: SaveData): void => write(DAILY_SAVE_KEY, d);
+
+export function clearDailySave(): void {
+  try {
+    localStorage.removeItem(DAILY_SAVE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export interface DailyResult {
+  score: number;
+  kills: number;
+  golden: number;
+  orders: number;
+  bucks: number;
+  days: number; // 10, unless the farm went bust first
+}
+
+/** Today's best, if you've finished today's Daily Farm. */
+export function loadDailyBest(key: string): DailyResult | null {
+  const d = read<{ key: string; best: DailyResult }>(DAILY_KEY);
+  return d && d.key === key ? d.best : null;
+}
+
+/** Keep the better of today's runs. Returns true on a new best. */
+export function recordDaily(key: string, r: DailyResult): boolean {
+  const best = loadDailyBest(key);
+  if (best && best.score >= r.score) return false;
+  write(DAILY_KEY, { key, best: r });
+  return true;
 }
 
 // ---------------------------------------------------------------- Hard Mode: open once you've sealed the crater

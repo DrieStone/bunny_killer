@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BUNNIES, defenseStats, HARVEST_SECONDS, MODES, PROJECT, SMOKE_BOMB, waveWeights } from '../src/config';
+import { BUNNIES, DAILY, defenseStats, HARVEST_SECONDS, MODES, PROJECT, SMOKE_BOMB, waveWeights } from '../src/config';
 import { Game } from '../src/game';
-import { CRATER, idx } from '../src/world';
-import { plotTiles, unlockAll } from './helpers';
+import { CRATER, dailyFor, idx } from '../src/world';
+import { botPlan, playDay, plotTiles, unlockAll } from './helpers';
 
 const DT = 1 / 60;
 
@@ -251,5 +251,39 @@ describe('keeping the farm after the win', () => {
     expect(copy.sealed).toBe(true);
     expect(copy.project).toBe(PROJECT.length);
     expect(copy.runId).toBe(g.runId);
+  });
+});
+
+describe('the Daily Farm', () => {
+  it('is the same farm for everyone on a date, a different one the next day', () => {
+    const a = dailyFor(new Date(2026, 8, 28));
+    const b = dailyFor(new Date(2026, 8, 28, 22, 15));
+    const c = dailyFor(new Date(2026, 8, 29));
+    expect(a).toEqual(b);
+    expect(a.key).toBe('2026-09-28');
+    expect(a.number).toBe(271);
+    expect(c.number).toBe(272);
+    expect(c.seed).not.toBe(a.seed);
+    expect(c.map).not.toBe(a.map);
+  });
+
+  it('lasts ten days, and keeps what it is through a save', () => {
+    const d = dailyFor(new Date(2026, 8, 28));
+    const g = new Game();
+    g.newDaily(d);
+    expect(g.map).toBe(d.map);
+    expect(g.seed).toBe(d.seed);
+    const copy = new Game();
+    copy.loadSave(JSON.parse(JSON.stringify(g.toSave())));
+    expect(copy.daily).toBe(d.key);
+    expect(copy.dailyNumber).toBe(d.number);
+    for (let day = 0; day < 15 && g.phase === 'planning'; day++) {
+      botPlan(g);
+      playDay(g, 0.5, 0.8);
+      g.continueAfterSummary();
+    }
+    expect(g.phase).toBe('gameover');
+    expect(g.round).toBe(DAILY.days);
+    expect(g.dailyDone).toBe(true);
   });
 });

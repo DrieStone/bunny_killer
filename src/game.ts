@@ -2,7 +2,7 @@
 import {
   ANGER, BOSS_BOUNTY, BOSS_EVERY, BOSS_HP_PER_APPEARANCE, BREED_CAP, BUNNIES, type BunnyKind, bunnyHpScale, burrowCount,
   CAP_RETRY, COLS, CROPS, CROP_ORDER, type CropKind, DEFENSES, type DefenseKind, defenseStats, FARM, FARM_ORDER,
-  CUSTOMERS, cropPlural, type EventKind, EVENTS, type FarmUpgrade, MERCHANT, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
+  CUSTOMERS, cropPlural, DAILY, type EventKind, EVENTS, type FarmUpgrade, MERCHANT, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
   LOT_COUNT, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, ORDERS, ripenDays, SMOKE_BOMB, POP_SECONDS, PROJECT, REPAIR_RATE, ROUND_SECONDS, ROWS, type Season, seasonOf, SEASONS,
   SELL_BACK, SOIL_GROWTH, SPAWN_WINDOW, SPRINKLER_GROWTH, STALL_PRICE, START_CREDITS, START_LOTS, SUNDOWN_MAX_SECONDS,
   TILL_COST, type Unlock, UNLOCK_RULE, unlockName, UNLOCKS, upgradeCost, waveSize, waveWeights, WEAPON_LEVELS,
@@ -62,6 +62,8 @@ export interface SaveData {
   eventBought?: string[]; // what's gone from the merchant's cart
   map?: MapKind; // which farm (Home Farm if missing)
   runId?: string; // one per farm, so a farm kept after its win updates its high score instead of adding another
+  daily?: string; // a Daily Farm: its date (YYYY-MM-DD)
+  dailyNumber?: number;
 }
 
 /**
@@ -159,6 +161,8 @@ export class Game {
   mode: Mode = 'normal';
   map: MapKind = 'home';
   runId = '';
+  daily: string | null = null; // playing a Daily Farm: its date
+  dailyNumber = 0;
   round = 1;
   credits = START_CREDITS;
   lots = startLots(); // which lots you own
@@ -240,6 +244,8 @@ export class Game {
     this.map = map;
     setMap(map);
     this.runId = `${Date.now().toString(36)}${(seed >>> 0).toString(36)}`;
+    this.daily = null;
+    this.dailyNumber = 0;
     this.retired = false;
     this.round = 1;
     this.credits = START_CREDITS;
@@ -384,6 +390,19 @@ export class Game {
     return this.stats.sealedOn !== undefined;
   }
 
+  /** Start today's Daily Farm: the same seed and farm for everyone, ten days. */
+  newDaily(d: { key: string; number: number; seed: number; map: MapKind }): void {
+    this.newGame(d.seed, 'normal', d.map);
+    this.daily = d.key;
+    this.dailyNumber = d.number;
+    this.runId = `daily-${d.key}`;
+  }
+
+  /** A Daily Farm is over after its tenth evening. */
+  get dailyDone(): boolean {
+    return !!this.daily && this.round >= DAILY.days && (this.phase === 'gameover' || this.phase === 'summary');
+  }
+
   /** From the victory screen: carry on with the crater sealed. No more Bucks; the bunnies keep coming. */
   keepFarming(): boolean {
     if (this.phase !== 'victory') return false;
@@ -461,6 +480,12 @@ export class Game {
     if (this.phase !== 'summary') return;
     if (this.nightResult === 'sealed') {
       this.phase = 'victory';
+      this.phaseTime = 0;
+      return;
+    }
+    if (this.daily && this.round >= DAILY.days) {
+      // the Daily Farm's ten days are up
+      this.phase = 'gameover';
       this.phaseTime = 0;
       return;
     }
@@ -1730,6 +1755,7 @@ export class Game {
     });
     return {
       v: SAVE_VERSION, seed: this.seed, round: this.round, credits: this.credits, mode: this.mode, map: this.map, runId: this.runId,
+      daily: this.daily ?? undefined, dailyNumber: this.daily ? this.dailyNumber : undefined,
       breedBonus: this.breedBonus, stats: { ...this.stats }, tiles,
       lots: this.lots.flatMap((own, n) => (own ? [n] : [])), lotsBought: this.lotsBought,
       tilled: [...this.tilled.keys()].filter((i) => this.tilled[i]),
@@ -1744,6 +1770,8 @@ export class Game {
     this.map = d.map === 'river' || d.map === 'orchard' ? d.map : 'home';
     setMap(this.map);
     this.runId = d.runId ?? `old${d.seed >>> 0}`;
+    this.daily = d.daily ?? null;
+    this.dailyNumber = d.dailyNumber ?? 0;
     this.seed = d.seed;
     this.mode = d.mode === 'hard' ? 'hard' : 'normal';
     this.round = d.round;

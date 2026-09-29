@@ -1,5 +1,5 @@
 // The map: grid helpers, the grid of lots you can buy, and the farms (scenery, the crater, rivers).
-import { COLS, FARM_X0, FARM_Y0, LOT, LOTS_X, LOTS_Y, ROWS } from './config';
+import { COLS, DAILY, FARM_X0, FARM_Y0, LOT, LOTS_X, LOTS_Y, ROWS } from './config';
 import type { Burrow } from './types';
 import { type Rng, shuffle } from './rng';
 
@@ -214,6 +214,19 @@ export function setMap(kind: MapKind): boolean {
 }
 
 export const currentMap = (): MapKind => current ?? 'home';
+
+/** Today's Daily Farm: a number (Daily #1 was New Year's Day 2026), a seed, and a farm, all from the date. */
+export function dailyFor(date = new Date()): { key: string; number: number; seed: number; map: MapKind } {
+  const y = date.getFullYear();
+  const m = date.getMonth();
+  const d = date.getDate();
+  const key = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const number = Math.floor((Date.UTC(y, m, d) - DAILY.epoch) / 86_400_000) + 1;
+  let h = (number * 2654435761) >>> 0;
+  h = Math.imul(h ^ (h >>> 16), 2246822507) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0;
+  return { key, number, seed: (h ^ (h >>> 16)) >>> 1, map: MAP_ORDER[((number % 3) + 3) % 3] };
+}
 
 setMap('home');
 

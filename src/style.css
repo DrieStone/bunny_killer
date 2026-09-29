@@ -303,6 +303,8 @@ b, strong, .bold, h1, h2, .btn, #menubar, .titlebar .title, .legend, .item .name
 .dialog ul { margin: 4px 0; padding-left: 18px; }
 .dialog li { margin: 2px 0; }
 
+.dialog pre.share { font: 11px Monaco, Menlo, monospace; background: #f4f4f4; border: 1px solid #000; padding: 6px 8px; margin: 4px 0;
+  white-space: pre-wrap; user-select: text; }
 .farm-cards { display: flex; gap: 10px; margin-top: 6px; }
 .farm-card { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px 10px;
   background: #fff; border: 1px solid #000; border-radius: 6px; font: inherit; text-align: center; cursor: pointer; min-width: 0; }

@@ -1,6 +1,6 @@
 // The System 7 chrome around the farm: menubar, Farm Store, Almanac, and dialogs.
 import {
-  ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, COMBO_TEXT, CROP_ORDER, cropPlural, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
+  ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, COMBO_TEXT, DAILY, CROP_ORDER, cropPlural, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
   defenseStats, FARM, FARM_ORDER, type FarmUpgrade, firstRound, fruitsPerDay, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost,
   EVENTS, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
@@ -10,7 +10,7 @@ import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, merchantCart, repai
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
-import type { ScoreEntry } from '../save';
+import type { DailyResult, ScoreEntry } from '../save';
 import type { ShopItem } from '../types';
 import type { DefenseKind } from '../config';
 import { FARMS, idx, inCrater, lotOfTile, MAP_ORDER, type MapKind, tileX, tileY } from '../world';
@@ -47,6 +47,8 @@ export interface UiHooks {
   balloonsOn(): boolean;
   replayTutorial(): void;
   keepFarming(): void;
+  newDaily(): void;
+  daily(): { key: string; number: number; map: MapKind; best: DailyResult | null; resumable: boolean };
 }
 
 /** Planning hotkeys: seeds on 1-9 and 0, defenses on Q W E R T Y and A S D, then the two tools. */
@@ -221,6 +223,7 @@ export class UI {
       case 'retire': this.confirmRetire(); break;
       case 'tutorial': this.hooks.replayTutorial(); break;
       case 'autoskip': this.hooks.setAutoSkip(!this.hooks.autoSkip()); break;
+      case 'daily': this.showDailyIntro(this.modal === 'title' ? () => this.showTitle() : undefined); break;
     }
   }
 
@@ -581,7 +584,9 @@ export class UI {
     $('title-panel').hidden = planning || day || !!classic;
     if (classic) this.updateClassic(classic);
     this.set('store-title', classic ? 'Scoreboard' : planning ? 'Farm Store' : day ? 'Out in the Field' : 'Farm Store');
-    this.set('farm-title', classic ? 'Bunny Killer Classic' : g.phase === 'title' ? 'Bunny Killer 4' : `Bunny Killer 4 — Day ${g.round}${g.mode === 'hard' ? ' (Hard)' : ''}`);
+    this.set('farm-title', classic ? 'Bunny Killer Classic' : g.phase === 'title' ? 'Bunny Killer 4'
+      : g.daily ? `Bunny Killer 4 — Daily #${g.dailyNumber} · Day ${g.round} of ${DAILY.days}`
+        : `Bunny Killer 4 — Day ${g.round}${g.mode === 'hard' ? ' (Hard)' : ''}`);
     this.set('mb-clock', this.clockText());
     this.set('mi-mute', this.hooks.muted() ? 'Sound On' : 'Sound Off');
     this.set('mi-music', this.hooks.musicMuted() ? 'Music On' : 'Music Off');
@@ -1115,6 +1120,7 @@ export class UI {
           <button class="btn" data-act="help">How to Play</button>
           <button class="btn" data-act="scores">High Scores</button>
           <button class="btn" data-act="classic">Classic Mode</button>
+          <button class="btn" data-act="daily">Daily Farm</button>
           ${save ? `<button class="btn" data-act="new">New Game</button>${hard}<button class="btn default" data-act="continue">Continue</button>`
             : `${hard}<button class="btn default" data-act="new">New Game</button>`}
         </div>
@@ -1126,6 +1132,7 @@ export class UI {
       classic: () => this.showClassicIntro(),
       new: () => this.chooseFarm('normal', () => this.showTitle()),
       hard: () => this.showHardIntro(() => this.showTitle()),
+      daily: () => this.showDailyIntro(() => this.showTitle()),
       continue: () => this.hooks.continueGame(),
     }, { Enter: save ? 'continue' : 'new' });
     $('logo-host').appendChild(makeLogo());
@@ -1274,7 +1281,7 @@ export class UI {
     const unlocks = soon.length
       ? `<p class="unlocks">New at the store tomorrow: ${soon.map((u) => `<b>${unlockName(u)}</b>`).join(', ')}!</p>` : '';
     let head = `<h1>Day ${g.round} is done</h1>`;
-    let next = `On to Day ${g.round + 1}`;
+    let next = g.daily && g.round >= DAILY.days ? 'See how you did ▸' : `On to Day ${g.round + 1}`;
     if (g.nightResult === 'sealed') {
       head = `<div class="icon-row">${spriteImg(sprites().bunnies.mutant.frames[0], 1)}<div><h1>The crater is sealed!</h1>` +
         '<p>The last Asteroid Buck went down just before dawn, and the cap slid home with a <i>clunk</i>. The glow is gone.</p></div></div>';
@@ -1397,6 +1404,67 @@ export class UI {
       <table class="offers">${rows || '<tr><td>The cart is empty.</td></tr>'}</table>
       <p class="hint">You have ${money(g.credits)}.</p>
       <div class="buttons"><button class="btn default" data-act="ok">Done</button></div>`, actions, { Enter: 'ok', Escape: 'ok' });
+  }
+
+  /** Today's Daily Farm: what it is, and your best so far today. */
+  showDailyIntro(back?: () => void): void {
+    const d = this.hooks.daily();
+    const done = back ?? (() => this.dismiss());
+    const best = d.best ? `<p>Your best today: <b>${money(d.best.score)}</b> harvested.</p>` : '';
+    this.open('daily', `
+      <div class="icon-row"><img src="${dataURL(farmMiniMap(d.map))}" alt="" style="width:132px;height:96px;image-rendering:pixelated;border:1px solid #000">
+      <div><h1>Daily Farm #${d.number}</h1>
+      <p><b>${FARMS[d.map].name}</b>, ${d.key}. Everybody playing today gets the same farm, the same weather, and the same
+      bunnies. You have <b>${DAILY.days} days</b>: how much can you harvest?</p>${best}</div></div>
+      <div class="buttons"><button class="btn" data-act="back">Back</button><button class="btn default" data-act="go">${d.resumable ? 'Resume ▸' : 'Play ▸'}</button></div>`, {
+      back: done,
+      go: () => this.hooks.newDaily(),
+    }, { Enter: 'go', Escape: 'back' });
+  }
+
+  /** The end of a Daily Farm: the score, today's best, and a line to share. */
+  showDailyResults(r: DailyResult, fresh: boolean): void {
+    const g = this.game;
+    const d = this.hooks.daily();
+    const best = d.best ?? r;
+    const bust = r.days < DAILY.days;
+    const share = [
+      `Bunny Killer 4 · Daily #${g.dailyNumber} · ${FARMS[g.map].name}`,
+      `🥕 ${r.score.toLocaleString('en-US')}¢ harvested in ${r.days} ${r.days === 1 ? 'day' : 'days'}${bust ? ' (went bust)' : ''}`,
+      `🐰 ${r.kills} bonked · ✨ ${r.golden} golden · 📋 ${r.orders} ${r.orders === 1 ? 'order' : 'orders'}`,
+    ].join('\n');
+    this.open('daily-done', `
+      <h1>Daily Farm #${g.dailyNumber}: ${bust ? 'the farm went bust' : 'done!'}</h1>
+      <table>
+        <tr><td>Harvested (your score)</td><td class="n">${money(r.score)}</td></tr>
+        <tr><td>Bunnies bonked</td><td class="n">${r.kills}</td></tr>
+        <tr><td>Golden bunnies</td><td class="n">${r.golden}</td></tr>
+        <tr><td>Orders filled</td><td class="n">${r.orders}</td></tr>
+        <tr class="total"><td>${fresh ? 'A new best for today!' : 'Your best today'}</td><td class="n">${money(best.score)}</td></tr>
+      </table>
+      <p>Share it:</p><pre class="share" id="share-text">${esc(share)}</pre>
+      <div class="buttons"><button class="btn left" data-act="copy" id="btn-copy">Copy</button><button class="btn" data-act="title">Title Screen</button>
+        <button class="btn default" data-act="again">Play Again</button></div>`, {
+      copy: () => {
+        const done = () => { $('btn-copy').textContent = 'Copied!'; };
+        navigator.clipboard?.writeText(share).then(done, () => this.copyByHand(share, done)) ?? this.copyByHand(share, done);
+      },
+      title: () => this.hooks.toTitle(),
+      again: () => this.hooks.newDaily(),
+    }, { Enter: 'again', Escape: 'title' });
+  }
+
+  /** Older browsers (and some pages opened from disk): copy through a hidden text box. */
+  private copyByHand(text: string, done: () => void): void {
+    const box = document.createElement('textarea');
+    box.value = text;
+    document.body.appendChild(box);
+    box.select();
+    try {
+      if (document.execCommand('copy')) done();
+    } finally {
+      box.remove();
+    }
   }
 
   /** What Hard Mode changes, before you commit to it. */
