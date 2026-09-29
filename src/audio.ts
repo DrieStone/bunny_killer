@@ -3,8 +3,13 @@ import type { GameEvent } from './types';
 
 type Wave = OscillatorType;
 
+/** Volume levels run 0 (silent) to 7, like the old Sound control panel; the game was mixed at 5. */
+export const VOLUME_MAX = 7;
+export const loudness = (level: number): number => Math.pow(Math.max(0, level) / 5, 1.6);
+
 export class Sfx {
   muted = false;
+  private level = 5;
   private ctx: AudioContext | null = null;
   private out: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
@@ -23,7 +28,7 @@ export class Sfx {
       if (!Ctor) return;
       this.ctx = new Ctor();
       this.out = this.ctx.createGain();
-      this.out.gain.value = 0.32;
+      this.out.gain.value = 0.32 * loudness(this.level);
       this.out.connect(this.ctx.destination);
       const len = this.ctx.sampleRate;
       this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -33,8 +38,14 @@ export class Sfx {
     if (this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
+  /** How loud the effects are, 0 to 7. */
+  setVolume(level: number): void {
+    this.level = level;
+    if (this.out && this.ctx) this.out.gain.setTargetAtTime(0.32 * loudness(level), this.ctx.currentTime, 0.02);
+  }
+
   private ready(name: string, gap: number): boolean {
-    if (this.muted || !this.ctx || !this.out) return false;
+    if (this.muted || this.level <= 0 || !this.ctx || !this.out) return false;
     const now = this.ctx.currentTime;
     const last = this.lastPlayed.get(name) ?? -1;
     if (now - last < gap) return false;

@@ -1,6 +1,7 @@
 // A tiny chiptune player: square lead, triangle bass, soft arpeggio, noise drums, all synthesized.
 // Songs are written on a 16th-note grid: a note like "E5" starts a note, "-" holds it, "." rests.
 // Drums use k (kick), s (snare), h (hat).
+import { loudness } from './audio';
 
 export type Song = 'title' | 'plan' | 'day' | 'boss';
 
@@ -132,6 +133,7 @@ function events(track: string): [number, string, number][] {
 
 export class Music {
   muted = false;
+  private level = 5;
   private ctx: AudioContext | null = null;
   private bus: GainNode | null = null;
   private noise: AudioBuffer | null = null;
@@ -146,7 +148,7 @@ export class Music {
     if (this.ctx) return;
     this.ctx = ctx;
     this.bus = ctx.createGain();
-    this.bus.gain.value = this.muted ? 0 : 1;
+    this.bus.gain.value = this.muted ? 0 : loudness(this.level);
     this.bus.connect(dest);
     const len = ctx.sampleRate;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -158,7 +160,17 @@ export class Music {
 
   setMuted(m: boolean): void {
     this.muted = m;
-    if (this.bus && this.ctx) this.bus.gain.setTargetAtTime(m ? 0 : 1, this.ctx.currentTime, 0.05);
+    this.apply();
+  }
+
+  /** How loud the music is, 0 to 7. */
+  setVolume(level: number): void {
+    this.level = level;
+    this.apply();
+  }
+
+  private apply(): void {
+    if (this.bus && this.ctx) this.bus.gain.setTargetAtTime(this.muted ? 0 : loudness(this.level), this.ctx.currentTime, 0.05);
   }
 
   play(song: Song | null): void {

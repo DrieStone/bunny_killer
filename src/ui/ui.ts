@@ -11,6 +11,7 @@ import { monoSprite } from '../render/mono';
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
+import { VOLUME_MAX } from '../audio';
 import type { DailyResult, Guide, ScoreEntry } from '../save';
 import { ACHIEVEMENTS, type Achievement } from '../achievements';
 import type { ShopItem } from '../types';
@@ -30,6 +31,8 @@ export interface UiHooks {
   skipDay(): void;
   autoSkip(): boolean; // skip by itself whenever it's all clear
   setAutoSkip(on: boolean): void;
+  volume(kind: 'sfx' | 'music'): number; // 0-7
+  setVolume(kind: 'sfx' | 'music', level: number): void;
   monochrome(): boolean; // 1993 Mode: black and white
   setMonochrome(on: boolean): void;
   toggleMute(): void;
@@ -234,6 +237,7 @@ export class UI {
       case 'intro': this.hooks.replayIntro(); break;
       case 'autoskip': this.hooks.setAutoSkip(!this.hooks.autoSkip()); break;
       case 'mono': this.toggleMonochrome(); break;
+      case 'sound': this.showSound(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'daily': this.showDailyIntro(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'guide': this.showGuide(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'achievements': this.showAchievements(this.modal === 'title' ? () => this.showTitle() : undefined); break;
@@ -1159,6 +1163,26 @@ export class UI {
     }, { Enter: save ? 'continue' : 'new' });
     const logo = makeLogo();
     $('logo-host').appendChild(monoIcons() ? monoSprite(logo, false) : logo);
+  }
+
+  /** Game › Sound…: how loud the effects and the music are, 0 to 7, like the old Sound control panel. */
+  showSound(back?: () => void): void {
+    const speaker = (waves: number) => `<svg width="18" height="14" viewBox="0 0 18 14" shape-rendering="crispEdges" aria-hidden="true">` +
+      `<path d="M1 5h3l4-4v12l-4-4H1z" fill="#000"/>` +
+      [0, 1, 2].slice(0, waves).map((n) => `<path d="M${10 + n * 3} ${4 - n}v${6 + n * 2}" stroke="#000" stroke-width="1.5"/>`).join('') + '</svg>';
+    const row = (kind: 'sfx' | 'music', label: string) => `
+      <div class="vol"><span class="vol-name">${label}</span>${speaker(0)}
+        <div class="vol-track"><input type="range" min="0" max="${VOLUME_MAX}" step="1" value="${this.hooks.volume(kind)}" data-vol="${kind}" aria-label="${label}">
+        <div class="vol-ticks">${Array.from({ length: VOLUME_MAX + 1 }, (_, n) => `<span>${n}</span>`).join('')}</div></div>${speaker(3)}</div>`;
+    this.open('sound', `<h1>Sound</h1>
+      ${row('sfx', 'Sound effects')}
+      ${row('music', 'Music')}
+      <p class="hint">0 is silent. <span class="kbd">M</span> and <span class="kbd">N</span> still switch them off and on.</p>
+      <div class="buttons"><button class="btn default" data-act="ok">OK</button></div>`,
+    { ok: back ?? (() => this.dismiss()) }, { Enter: 'ok', Escape: 'ok' });
+    document.querySelectorAll<HTMLInputElement>('#modal-layer [data-vol]').forEach((el) => {
+      el.addEventListener('input', () => this.hooks.setVolume(el.dataset.vol as 'sfx' | 'music', Number(el.value)));
+    });
   }
 
   /** Game › 1993 Mode: the whole thing in black and white, or back to color. */

@@ -25,6 +25,8 @@ const music = new Music();
 const settings = store.loadSettings();
 sfx.muted = settings.muted;
 music.setMuted(settings.musicMuted);
+sfx.setVolume(settings.sfxVolume);
+music.setVolume(settings.musicVolume);
 
 /** Audio may only start after a click or key; this also brings the music in. */
 function unlockAudio(): void {
@@ -176,6 +178,25 @@ const hooks: UiHooks = {
   autoSkip: () => settings.autoSkip,
   setAutoSkip(on: boolean) {
     settings.autoSkip = on;
+    store.saveSettings(settings);
+  },
+  volume: (kind: 'sfx' | 'music') => (kind === 'sfx' ? settings.sfxVolume : settings.musicVolume),
+  setVolume(kind: 'sfx' | 'music', level: number) {
+    unlockAudio();
+    // turning one up turns it back on
+    if (kind === 'sfx') {
+      settings.sfxVolume = level;
+      sfx.setVolume(level);
+      if (level > 0) sfx.muted = settings.muted = false;
+      sfx.play('poof'); // a sample, at the new level
+    } else {
+      settings.musicVolume = level;
+      music.setVolume(level);
+      if (level > 0 && music.muted) {
+        music.setMuted(false);
+        settings.musicMuted = false;
+      }
+    }
     store.saveSettings(settings);
   },
   monochrome: () => settings.mono,
