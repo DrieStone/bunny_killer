@@ -99,6 +99,8 @@ export class Renderer {
   private meadowKey = '';
   private soilTiles: HTMLCanvasElement[] = [];
   private comboAt = new Map<string, number>(); // when a combo last popped at a spot
+  private celebrateAt = -1; // when the victory began (renderer clock), or -1
+  private capLanded = true;
   private season: Season = 'spring';
   private weatherFx: { x: number; y: number; v: number; s: number; p: number }[] = [];
   private fogPhase = 0;
@@ -379,7 +381,14 @@ export class Renderer {
     list.sort((p, q) => p.y - q.y);
     for (const d of list) d.draw();
 
-    this.drawCraterGlow(title ? 0 : g.project);
+    if (title || !g.sealed) this.drawCraterGlow(title ? 0 : g.project);
+    else if (this.celebrateAt >= 0 && !this.capLanded) {
+      // the last of the glow, going out as the cap comes down
+      this.ctx.globalAlpha = Math.max(0, 1 - (this.clock - this.celebrateAt) / 1.8);
+      this.drawCraterGlow(g.project);
+      this.ctx.globalAlpha = 1;
+    }
+    if (g.phase === 'victory') this.fireworks();
     if (!title) this.smokeCrater(g);
     if (!title) this.drawWeatherEvent(g);
     for (const p of g.projectiles) this.drawPebble(p.x * T, p.y * T);
@@ -406,6 +415,8 @@ export class Renderer {
     this.fx.clear();
     this.dusk = 0;
     this.night = 0;
+    this.celebrateAt = -1;
+    this.capLanded = true;
   }
 
   // ------------------------------------------------------------ the ground
@@ -1231,21 +1242,54 @@ export class Renderer {
           ctx.fillStyle = '#ff7a1a';
           ctx.fillRect(x + 1, y - 8, 4, 2);
         }
-        if (g.lastNight) this.drawCap(cx, top);
+        if (g.lastNight) this.drawCap(cx, top, 0);
+        else if (g.sealed) this.drawCap(cx, top, this.capDrop(cx, cy));
       },
     });
   }
 
-  /** The cap, hanging on chains over the crater, waiting for dawn. */
-  private drawCap(cx: number, top: number): void {
+  /** How far down the cap is (0 hanging, 1 home). It comes down when the crater is sealed, with a thud of dust. */
+  private capDrop(cx: number, cy: number): number {
+    if (this.celebrateAt < 0) return 1;
+    const t = Math.min(1, (this.clock - this.celebrateAt - 0.4) / 1.4);
+    if (t >= 1 && !this.capLanded) {
+      this.capLanded = true;
+      for (let n = 0; n < 16; n++) this.fx.puff(cx + (Math.random() - 0.5) * 70, cy + 6, 10, n % 2 ? '#c8b89a' : '#a8987a', 0.9);
+      this.fx.ring(cx, cy, 60, '#e8dcc0', 0.6);
+    }
+    return Math.max(0, t) ** 2; // slow, then down it comes
+  }
+
+  /** The victory: the cap goes on, then fireworks. */
+  celebrate(): void {
+    this.celebrateAt = this.clock;
+    this.capLanded = false;
+  }
+
+  private fireworks(): void {
+    if (this.celebrateAt < 0 || this.clock - this.celebrateAt < 2 || Math.random() > 0.1) return;
+    const x = (3 + Math.random() * 16) * T;
+    const y = (1.5 + Math.random() * 5.5) * T;
+    const shells = [['#ff5a5a', '#ffd0d0'], ['#5ab8ff', '#d0ecff'], ['#ffe24a', '#fff6c8'], ['#7ddc4a', '#d8ffc8'], ['#e07aff', '#f6d8ff']];
+    const [a, b] = shells[Math.floor(Math.random() * shells.length)];
+    this.fx.burst(x, y, 60, [a, b, '#ffffff'], 190, { grav: 45, life: 1.3, size: 3 });
+    this.fx.burst(x, y, 20, ['#ffffff'], 60, { grav: 20, life: 0.5, size: 2 });
+    this.fx.ring(x, y, 44, a, 0.55);
+  }
+
+  /** The cap, hanging on chains over the crater waiting for dawn (drop 0), or home on the rim (drop 1). */
+  private drawCap(cx: number, top: number, drop: number): void {
     const ctx = this.ctx;
-    const y = Math.round(top - 18 + Math.sin(this.clock * 1.4) * 2);
+    const hang = top - 18 + (drop > 0 ? 0 : Math.sin(this.clock * 1.4) * 2);
+    const y = Math.round(hang + (top + 36 - hang) * drop); // home: right over the hole
     ctx.fillStyle = '#5d6470';
-    for (const dx of [-20, 0, 20]) {
-      for (let k = 0; k < 22; k++) {
-        const t = k / 22;
-        ctx.globalAlpha = 1 - t;
-        ctx.fillRect(Math.round(cx + dx * (1 - t * 0.7)), y - 4 - k * 3, 2, 2);
+    if (drop < 1) {
+      for (const dx of [-20, 0, 20]) {
+        for (let k = 0; k < 22; k++) {
+          const t = k / 22;
+          ctx.globalAlpha = (1 - t) * (1 - drop);
+          ctx.fillRect(Math.round(cx + dx * (1 - t * 0.7)), y - 4 - k * 3, 2, 2);
+        }
       }
     }
     ctx.globalAlpha = 1;

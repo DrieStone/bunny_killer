@@ -46,6 +46,7 @@ export interface UiHooks {
   scores(): ScoreEntry[];
   balloonsOn(): boolean;
   replayTutorial(): void;
+  keepFarming(): void;
 }
 
 /** Planning hotkeys: seeds on 1-9 and 0, defenses on Q W E R T Y and A S D, then the two tools. */
@@ -1333,10 +1334,12 @@ export class UI {
         <tr class="total"><td>Lifetime harvest</td><td class="n">${g.stats.harvest}¢</td></tr>
       </table>
       ${placed}${next}
-      <div class="buttons"><button class="btn left" data-act="scores">High Scores</button><button class="btn" data-act="title">Title Screen</button>
+      <div class="buttons"><button class="btn left" data-act="scores">High Scores</button><button class="btn" data-act="title">Title</button>
+        <button class="btn" data-act="keep">Keep Farming</button>
         ${hard ? '<button class="btn default" data-act="hard">New Game</button>'
           : '<button class="btn" data-act="new">New Game</button><button class="btn default" data-act="hard">Hard Mode ▸</button>'}</div>`,
     {
+      keep: () => this.hooks.keepFarming(),
       title: () => this.hooks.toTitle(),
       new: () => this.chooseFarm('normal', () => this.showVictory(rank)),
       hard: () => this.chooseFarm('hard', () => this.showVictory(rank)),
@@ -1347,7 +1350,9 @@ export class UI {
   showGameOver(rank = -1): void {
     const g = this.game;
     const days = g.round - 1;
-    const headline = g.retired
+    const kept = g.sealed ? `<p>You sealed the crater on day ${g.stats.sealedOn} and farmed on to day ${days}. ` +
+      `${g.retired ? 'Not a bad life.' : 'The bunnies had the last word after all.'}</p>` : '';
+    const headline = kept ? `<h1>${g.retired ? 'You hung up your hat.' : 'The farm went bust.'}</h1>${kept}` : g.retired
       ? `<h1>You hung up your hat.</h1><p>After ${days} ${days === 1 ? 'day' : 'days'} on the farm, you retired to the porch. The bunnies throw a small party.</p>`
       : '<h1>The farm went bust.</h1><p>No crops in the ground and not enough credits for a single seed. The bunnies have won… this time.</p>';
     const placed = rank === 0 ? '<p><b>A new high score!</b></p>' : rank > 0 ? `<p>That's <b>#${rank + 1}</b> on your high score table.</p>` : '';
@@ -1448,7 +1453,8 @@ export class UI {
     const list = this.hooks.scores();
     const rows = list.length
       ? list.map((e, n) => `<tr${e.sealed ? ' class="sealed"' : ''}><td class="n">${n + 1}.</td><td class="n">${e.score}¢</td>` +
-          `<td>${e.sealed ? `<b>Sealed the crater</b> in ${e.days} days` : `${e.days} ${e.days === 1 ? 'day' : 'days'}${e.retired ? ', retired' : ''}`}` +
+          `<td>${e.sealed ? `<b>Sealed the crater</b> in ${e.days} days${e.endless ? `, farmed on to day ${e.endless}` : ''}`
+            : `${e.days} ${e.days === 1 ? 'day' : 'days'}${e.retired ? ', retired' : ''}`}` +
           `${e.hard ? ' <span class="hard">HARD</span>' : ''}` +
           `</td><td class="n">${e.kills} bonked</td><td class="n">${e.date}</td></tr>`).join('')
       : '<tr><td colspan="5"><p>No finished farms yet. Every run that ends, by sealing the crater, going bust, or retiring, lands here.</p></td></tr>';

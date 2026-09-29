@@ -61,6 +61,7 @@ export interface SaveData {
   event?: DayEvent | null; // today's event
   eventBought?: string[]; // what's gone from the merchant's cart
   map?: MapKind; // which farm (Home Farm if missing)
+  runId?: string; // one per farm, so a farm kept after its win updates its high score instead of adding another
 }
 
 /**
@@ -157,6 +158,7 @@ export class Game {
   seed = 1;
   mode: Mode = 'normal';
   map: MapKind = 'home';
+  runId = '';
   round = 1;
   credits = START_CREDITS;
   lots = startLots(); // which lots you own
@@ -237,6 +239,7 @@ export class Game {
     this.mode = mode;
     this.map = map;
     setMap(map);
+    this.runId = `${Date.now().toString(36)}${(seed >>> 0).toString(36)}`;
     this.retired = false;
     this.round = 1;
     this.credits = START_CREDITS;
@@ -328,7 +331,7 @@ export class Game {
 
   private buildWave(): SpawnEntry[] {
     const rng = this.rng;
-    const anger = this.project;
+    const anger = this.sealed ? 0 : this.project; // a sealed crater sends nobody
     const m = MODES[this.mode];
     const scale = SEASONS[this.season].bunnies * WEATHER[this.weather].bunnies * (1 + ANGER.wave * m.anger * anger) *
       (this.lastNight ? 1.25 : 1) * m.waves;
@@ -373,7 +376,34 @@ export class Game {
 
   /** A Buck comes today: it's the last day of a season, or the crater got smoked out. */
   bossToday(): boolean {
-    return this.isBossDay() || this.smoked;
+    return !this.sealed && (this.isBossDay() || this.smoked);
+  }
+
+  /** The crater's been capped: the run is won, and anything after is just farming. */
+  get sealed(): boolean {
+    return this.stats.sealedOn !== undefined;
+  }
+
+  /** From the victory screen: carry on with the crater sealed. No more Bucks; the bunnies keep coming. */
+  keepFarming(): boolean {
+    if (this.phase !== 'victory') return false;
+    this.nightResult = null;
+    this.breedBonus = Math.min(BREED_CAP, this.roundStats.escapedFed);
+    this.smoked = false;
+    this.round++;
+    this.enterPlanning();
+    return true;
+  }
+
+  /** A few bunnies hop about the field while the fireworks go off. */
+  celebrate(): void {
+    this.bunnies = [];
+    for (let n = 0; n < 6; n++) {
+      const b = this.spawnAt(n % 3 === 1 ? 'speedy' : 'common', 5 + this.rng() * (COLS - 10), 4 + this.rng() * 8);
+      b.state = 'wander';
+      b.timer = this.rng() * 2;
+    }
+    this.events = this.events.filter((e) => e.t !== 'spawn');
   }
 
   /** An Asteroid Buck comes on the last day of every season. */
@@ -449,7 +479,7 @@ export class Game {
       this.stepDay(dt);
     } else if (this.phase === 'harvest') {
       this.stepHarvest(dt);
-    } else if (this.phase === 'title') {
+    } else if (this.phase === 'title' || this.phase === 'victory') {
       updateBunnies(this, dt);
     }
   }
@@ -1012,6 +1042,7 @@ export class Game {
   /** Why a smoke bomb can't go into the crater this morning, or null if it can. */
   smokeProblem(): string | null {
     if (this.phase !== 'planning') return 'Wait for the morning.';
+    if (this.sealed) return 'The crater is sealed for good.';
     const lock = this.lockReason('smoke');
     if (lock) return lock;
     if (this.lastNight) return 'The Last Night has Bucks enough.';
@@ -1698,7 +1729,7 @@ export class Game {
       });
     });
     return {
-      v: SAVE_VERSION, seed: this.seed, round: this.round, credits: this.credits, mode: this.mode, map: this.map,
+      v: SAVE_VERSION, seed: this.seed, round: this.round, credits: this.credits, mode: this.mode, map: this.map, runId: this.runId,
       breedBonus: this.breedBonus, stats: { ...this.stats }, tiles,
       lots: this.lots.flatMap((own, n) => (own ? [n] : [])), lotsBought: this.lotsBought,
       tilled: [...this.tilled.keys()].filter((i) => this.tilled[i]),
@@ -1712,6 +1743,7 @@ export class Game {
   loadSave(d: SaveData): void {
     this.map = d.map === 'river' || d.map === 'orchard' ? d.map : 'home';
     setMap(this.map);
+    this.runId = d.runId ?? `old${d.seed >>> 0}`;
     this.seed = d.seed;
     this.mode = d.mode === 'hard' ? 'hard' : 'normal';
     this.round = d.round;
@@ -1741,7 +1773,8 @@ export class Game {
     this.order = d.order && CROPS[d.order.kind] ? { ...d.order } : null;
     this.event = d.event ?? null;
     this.eventBought = [...(d.eventBought ?? [])];
-    if (this.project === PROJECT.length && !this.lastNight) this.project = PROJECT.length - 1; // the cap never went on
+    // the cap never went on (unless it did, and this is a farm kept after its win)
+    if (this.project === PROJECT.length && !this.lastNight && d.stats.sealedOn === undefined) this.project = PROJECT.length - 1;
     this.market = { ...evenMarket(1), ...d.market };
     this.glut = { ...evenMarket(0), ...d.glut };
     this.wanted = { ...evenMarket(0), ...d.wanted };

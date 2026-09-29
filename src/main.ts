@@ -35,6 +35,8 @@ const view: View = { mouseX: 0, mouseY: 0, mouseIn: false, hoverTile: -1, select
 let paused = false;
 let speed = 1; // the player's pick: 1, 2, or 4
 let skipping = false; // "skip to sundown" runs the rest of the day at 8x
+let victoryWait = 0; // seconds of fireworks before the victory dialog
+let victoryRank = -1;
 let classic: Classic | null = null;
 let classicResultsShown = false;
 const balloons = new Balloons(); // Help > Show Balloons
@@ -174,6 +176,12 @@ const hooks: UiHooks = {
     hooks.toTitle();
   },
   classicBest: store.loadClassicBest,
+  keepFarming() {
+    ui.closeModal();
+    if (!game.keepFarming()) return;
+    persist();
+    ui.banner(`Day ${game.round}`, 'The crater is sealed. The bunnies are not impressed.', 2.4);
+  },
   replayTutorial() {
     tutorial.restart();
     ui.toast('Tutorial tips are back on. Start a new game to see them all.');
@@ -201,15 +209,24 @@ function onPhase(from: Phase, to: Phase): void {
   }
   if (to === 'gameover' || to === 'victory') {
     const won = to === 'victory';
-    const days = won ? game.round : game.round - 1;
+    const sealedOn = game.stats.sealedOn;
+    const days = sealedOn ?? game.round - 1;
     store.clearSave();
-    store.recordBest(game.stats.harvest, days);
+    store.recordBest(game.stats.harvest, won ? game.round : game.round - 1);
+    // one entry per farm: a farm kept after its win updates the entry it made when it won
     const rank = store.addScore({
-      score: game.stats.harvest, days, kills: game.stats.kills, bosses: game.stats.bossesBeaten,
-      date: new Date().toISOString().slice(0, 10), retired: game.retired, sealed: won, hard: game.mode === 'hard',
+      id: game.runId, score: game.stats.harvest, days, kills: game.stats.kills, bosses: game.stats.bossesBeaten,
+      date: new Date().toISOString().slice(0, 10), retired: game.retired && sealedOn === undefined, sealed: sealedOn !== undefined,
+      hard: game.mode === 'hard', endless: !won && sealedOn !== undefined ? game.round - 1 : undefined,
     });
     if (won) store.openHardMode();
-    if (won) ui.showVictory(rank);
+    if (won) {
+      // the cap goes on and the fireworks go up, then the dialog
+      game.celebrate();
+      renderer.celebrate();
+      victoryRank = rank;
+      victoryWait = 4.5;
+    }
     else ui.showGameOver(rank);
   }
   if (from === 'title' && to === 'planning') canvas.focus();
@@ -257,6 +274,7 @@ canvas.addEventListener('pointerleave', () => {
 canvas.addEventListener('pointerdown', (e) => {
   unlockAudio();
   toWorld(e);
+  if (skipCelebration()) return;
   if (ui.modalOpen) return;
   if (classic) {
     if (e.button === 0 && !paused) classic.fire(view.mouseX / TILE, view.mouseY / TILE);
@@ -311,9 +329,18 @@ canvas.addEventListener('wheel', (e) => {
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+/** The fireworks can be skipped: straight to the victory dialog. */
+function skipCelebration(): boolean {
+  if (victoryWait <= 0) return false;
+  victoryWait = 0;
+  ui.showVictory(victoryRank);
+  return true;
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   unlockAudio();
+  if (skipCelebration()) return;
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (key === ' ') e.preventDefault();
   if (ui.modalOpen) {
@@ -419,7 +446,16 @@ function frame(now: number): void {
     requestAnimationFrame(frame);
     return;
   }
-  const running = !paused && (!modal || modal === 'title');
+  if (victoryWait > 0) {
+    const before = victoryWait;
+    victoryWait -= dt;
+    if (before > 2.7 && victoryWait <= 2.7) {
+      sfx.play('thud'); // the cap comes home
+      sfx.play('boom');
+    }
+    if (victoryWait <= 0) ui.showVictory(victoryRank);
+  }
+  const running = !paused && (!modal || modal === 'title' || game.phase === 'victory');
   if (running) {
     const rate = skipping ? 8 : speed;
     acc += dt * rate;

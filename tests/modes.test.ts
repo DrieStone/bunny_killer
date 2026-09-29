@@ -208,3 +208,48 @@ describe('smoke bombs', () => {
     expect(copy.wave.some((w) => w.kind === 'mutant')).toBe(false);
   });
 });
+
+describe('keeping the farm after the win', () => {
+  function won(): Game {
+    const g = new Game();
+    g.newGame(91);
+    unlockAll(g);
+    g.stats.bossesBeaten = PROJECT[2].bucks;
+    g.project = 2;
+    g.credits = 20000;
+    g.place({ type: 'crop', kind: 'carrot' }, plotTiles(g)[0]);
+    expect(g.fundProject()).toBe(true);
+    expect(g.startRound()).toBe(true);
+    let guard = 0;
+    while (g.phase !== 'summary' && guard++ < 60 * 200) {
+      g.update(DT);
+      for (const b of g.bunnies) if (BUNNIES[b.kind].boss && !b.dead) g.damageBunny(b, 9999);
+      if (g.phase === 'harvest') g.finishHarvestNow();
+    }
+    g.continueAfterSummary();
+    expect(g.phase).toBe('victory');
+    return g;
+  }
+
+  it('carries on with the crater sealed: no more Bucks, no crater bunnies, no smoke bombs', () => {
+    const g = won();
+    const sealedOn = g.stats.sealedOn;
+    expect(g.keepFarming()).toBe(true);
+    expect(g.phase).toBe('planning');
+    expect(g.sealed).toBe(true);
+    expect(g.stats.sealedOn).toBe(sealedOn);
+    for (let n = 0; n < 10; n++) {
+      g.round++;
+      g.loadSave(g.toSave());
+      expect(g.wave.some((w) => w.kind === 'mutant')).toBe(false);
+      expect(g.wave.some((w) => w.burrow < 0)).toBe(false);
+    }
+    expect(g.smokeProblem()).toMatch(/sealed/);
+    // and a save keeps it sealed
+    const copy = new Game();
+    copy.loadSave(JSON.parse(JSON.stringify(g.toSave())));
+    expect(copy.sealed).toBe(true);
+    expect(copy.project).toBe(PROJECT.length);
+    expect(copy.runId).toBe(g.runId);
+  });
+});

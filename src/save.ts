@@ -78,6 +78,8 @@ export interface ScoreEntry {
   retired: boolean;
   sealed?: boolean; // won: sealed the crater in `days` days
   hard?: boolean; // played in Hard Mode
+  id?: string; // the farm it's from: a farm kept after its win updates its entry
+  endless?: number; // kept farming after sealing the crater, to this day
 }
 
 export function loadScores(): ScoreEntry[] {
@@ -87,7 +89,7 @@ export function loadScores(): ScoreEntry[] {
 
 /** Add a finished run; returns its 0-based rank in the top ten, or -1 if it didn't place. */
 export function addScore(entry: ScoreEntry): number {
-  const list = loadScores();
+  const list = loadScores().filter((e) => !entry.id || e.id !== entry.id);
   list.push(entry);
   // wins first (Hard Mode ahead), fastest on top; then everyone else by harvest
   list.sort((a, b) => Number(!!b.sealed) - Number(!!a.sealed) ||
