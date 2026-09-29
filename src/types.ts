@@ -1,4 +1,4 @@
-import type { BunnyKind, CropKind, DefenseKind, WeaponKind } from './config';
+import type { BunnyKind, CropKind, DefenseKind, EventKind, WeaponKind } from './config';
 
 export interface Crop {
   kind: CropKind;
@@ -105,6 +105,22 @@ export interface Projectile {
   done: boolean;
 }
 
+/** A deal on the travelling merchant's cart. `id` says what it is: rare:<unlock>, soil, lab:<crop>, weapon:<weapon>. */
+export interface Offer {
+  id: string;
+  name: string;
+  text: string;
+  price: number;
+}
+
+/** Something different about today. */
+export interface DayEvent {
+  kind: EventKind;
+  crop?: CropKind; // the County Fair's crop
+  at?: number; // when the hail comes (seconds into the day)
+  offers?: Offer[]; // the merchant's cart
+}
+
 /** An order from town: `want` of a crop by the evening of day `due`, for a bonus on top of the sale. */
 export interface Order {
   who: string;
@@ -155,6 +171,8 @@ export interface RoundStats {
   prizeCash: number;
   orderPaid: number; // an order from town filled tonight
   orderNote: string; // how the order stands after tonight's harvest ('' if there isn't one)
+  hailHit: number; // crops the hail knocked about
+  fairSold: number; // crops the County Fair bought at its price
 }
 
 export interface LifetimeStats {
@@ -210,4 +228,5 @@ export type GameEvent =
   | { t: 'smoke'; x: number; y: number }
   | { t: 'golden'; x: number; y: number } // a golden bunny starts its dash
   | { t: 'prize'; x: number; y: number; text: string; short: string }
-  | { t: 'order'; x: number; y: number; amount: number };
+  | { t: 'order'; x: number; y: number; amount: number }
+  | { t: 'hail' };

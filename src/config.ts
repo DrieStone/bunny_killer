@@ -91,6 +91,27 @@ export function fruitsPerDay(kind: CropKind, speed = 1): number {
   return regrow ? Math.max(1, Math.floor((ROUND_SECONDS * speed) / regrow + 1e-9)) : 1;
 }
 
+// ---------------------------------------------------------------- events: some days are different
+
+export type EventKind = 'fair' | 'hail' | 'drought' | 'merchant';
+
+/**
+ * From Day 4, about a quarter of mornings bring an event (never a Buck day or the Last Night).
+ * - County Fair: one crop that can ripen today sells for `fairMult` times the price, the first `fairCap` of it.
+ * - Hail: partway through the day it knocks `hailDamage` of every crop's toughness off (nothing under a
+ *   greenhouse), and for `hailSeconds` the bunnies cower where they are.
+ * - Drought: crops grow at `drought` speed unless a sprinkler reaches them.
+ * - Merchant: a cart by the farm for the morning, with a few deals (see MERCHANT).
+ */
+export const EVENTS = {
+  from: 4, chance: 0.27,
+  weights: [['fair', 3], ['hail', 2.5], ['drought', 2], ['merchant', 2.5]] as [EventKind, number][],
+  fairMult: 3, fairCap: 20, hailSeconds: 6, hailDamage: 0.3, drought: 0.65,
+};
+
+/** The travelling merchant: something the store hasn't opened yet, and cut prices on a few upgrades. */
+export const MERCHANT = { rare: { crop: 150, defense: 220, weapon: 300 }, soilOff: 0.5, labOff: 0.5, weaponOff: 0.4 };
+
 /** "carrots", "radishes", "strawberries", "tomatoes"; lettuce and corn stay as they are. Lowercase. */
 export function cropPlural(kind: CropKind, n = 2): string {
   const name = CROPS[kind].name.toLowerCase();

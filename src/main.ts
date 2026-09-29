@@ -99,8 +99,12 @@ const hooks: UiHooks = {
       persist();
       const fresh = game.newUnlocks.map(unlockName);
       const o = game.newOrder ? game.order : null;
-      const sub = fresh.length ? `New at the store: ${fresh.join(', ')}` : o ? `New order: ${o.who.replace(/^The /, 'the ')} wants ${o.want} ${cropPlural(o.kind, o.want)}`
-        : game.isBossDay() ? 'The crater is glowing…' : 'A new morning';
+      const ev = game.event;
+      const happening = ev?.kind === 'fair' ? `County Fair: ${cropPlural(ev.crop!)} sell for triple!` : ev?.kind === 'hail' ? 'Hail on the way…'
+        : ev?.kind === 'drought' ? 'A drought: water what you can' : ev?.kind === 'merchant' ? 'A travelling merchant is by the farm' : '';
+      const sub = fresh.length ? `New at the store: ${fresh.join(', ')}` : happening
+        || (o ? `New order: ${o.who.replace(/^The /, 'the ')} wants ${o.want} ${cropPlural(o.kind, o.want)}` : '')
+        || (game.isBossDay() ? 'The crater is glowing…' : 'A new morning');
       ui.banner(`Day ${game.round}`, sub, fresh.length ? 2.6 : 1.6);
     }
   },
@@ -267,6 +271,10 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   if (game.phase !== 'planning' || view.hoverTile < 0) return;
+  if (e.button === 0 && view.hoverTile === game.merchantTile()) {
+    ui.showMerchant();
+    return;
+  }
   if (e.button === 2) {
     if (game.removeAt(view.hoverTile)) persist();
     return;

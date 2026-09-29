@@ -2,7 +2,7 @@
 import {
   ANGER, BOSS_BOUNTY, BOSS_EVERY, BOSS_HP_PER_APPEARANCE, BREED_CAP, BUNNIES, type BunnyKind, bunnyHpScale, burrowCount,
   CAP_RETRY, COLS, CROPS, CROP_ORDER, type CropKind, DEFENSES, type DefenseKind, defenseStats, FARM, FARM_ORDER,
-  CUSTOMERS, cropPlural, type FarmUpgrade, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
+  CUSTOMERS, cropPlural, type EventKind, EVENTS, type FarmUpgrade, MERCHANT, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
   LOT_COUNT, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, ORDERS, ripenDays, SMOKE_BOMB, POP_SECONDS, PROJECT, REPAIR_RATE, ROUND_SECONDS, ROWS, type Season, seasonOf, SEASONS,
   SELL_BACK, SOIL_GROWTH, SPAWN_WINDOW, SPRINKLER_GROWTH, STALL_PRICE, START_CREDITS, START_LOTS, SUNDOWN_MAX_SECONDS,
   TILL_COST, type Unlock, UNLOCK_RULE, unlockName, UNLOCKS, upgradeCost, waveSize, waveWeights, WEAPON_LEVELS,
@@ -13,7 +13,7 @@ import { PathField } from './path';
 import { knockBack, sidestep, updateBunnies } from './sim/bunnies';
 import { updateDefenses } from './sim/defenses';
 import type {
-  Bunny, Burrow, Crop, Dog, GameEvent, LifetimeStats, Order, Phase, Projectile, RoundStats, Shell, ShopItem, SpawnEntry,
+  Bunny, Burrow, Crop, DayEvent, Dog, GameEvent, LifetimeStats, Offer, Order, Phase, Projectile, RoundStats, Shell, ShopItem, SpawnEntry,
   Structure, Tile,
 } from './types';
 import {
@@ -58,6 +58,8 @@ export interface SaveData {
   mode?: Mode; // hard mode, once it's open (normal if missing)
   smoked?: boolean; // a smoke bomb went into the crater this morning
   order?: Order | null; // an order from town, if one is open
+  event?: DayEvent | null; // today's event
+  eventBought?: string[]; // what's gone from the merchant's cart
   map?: MapKind; // which farm (Home Farm if missing)
 }
 
@@ -130,7 +132,7 @@ function emptyRoundStats(): RoundStats {
   return {
     harvested: {}, harvestTotal: 0, spent: 0, kills: 0, bounty: 0,
     escapedFed: 0, escapedHungry: 0, cropsLost: 0, structuresBroken: 0, bucks: 0, bucksEscaped: 0, cropsStolen: 0, market: {},
-    prize: '', prizeCash: 0, orderPaid: 0, orderNote: '',
+    prize: '', prizeCash: 0, orderPaid: 0, orderNote: '', hailHit: 0, fairSold: 0,
   };
 }
 
@@ -172,6 +174,10 @@ export class Game {
   goldenAt = -1; // when today's golden bunny makes its dash (seconds into the day), or -1
   order: Order | null = null; // an order from town, if one is open
   newOrder = false; // it was posted this morning
+  event: DayEvent | null = null; // something different about today
+  eventBought: string[] = []; // deals already taken off the merchant's cart
+  hail = 0; // seconds of hail left
+  private hailFell = false;
   nightResult: NightResult = null;
   unlocked = new Set<Unlock>();
   newUnlocks: Unlock[] = []; // what opened up in the store this morning
@@ -290,7 +296,14 @@ export class Game {
     if (newDay && this.round > 1) this.moveMarket();
     this.newOrder = false;
     if (newDay && !this.order) this.postOrder();
+    this.hail = 0;
+    this.hailFell = false;
     const fresh = this.refreshUnlocks();
+    if (newDay) {
+      this.event = null; // (yesterday's drought mustn't color today's choices)
+      this.event = this.rollEvent();
+      this.eventBought = [];
+    }
     this.newUnlocks = newDay ? fresh : [];
     if (this.isBust()) this.phase = 'gameover';
   }
@@ -476,6 +489,8 @@ export class Game {
         this.goldenAt = -1;
         this.spawnGolden();
       }
+      if (this.event?.kind === 'hail' && !this.hailFell && this.time >= (this.event.at ?? 0)) this.startHail();
+      if (this.hail > 0) this.hail = Math.max(0, this.hail - dt);
       this.growCrops(dt);
       if (this.time >= ROUND_SECONDS) {
         this.phase = 'sundown';
@@ -530,9 +545,11 @@ export class Game {
   }
 
   private growCrops(dt: number): void {
+    const drought = this.event?.kind === 'drought' ? EVENTS.drought : 1;
     for (let i = 0; i < N; i++) {
       const c = this.tiles[i].crop;
-      if (c) c.growth += dt * this.growthMult[i] * this.climateGrowth * this.cropGrowth(c.kind);
+      const dry = this.growthMult[i] > 1 ? 1 : drought; // a sprinkler keeps the drought off
+      if (c) c.growth += dt * this.growthMult[i] * dry * this.climateGrowth * this.cropGrowth(c.kind);
     }
   }
 
@@ -548,14 +565,18 @@ export class Game {
     return Math.max(1, Math.min(left, 1 + Math.floor((c.growth - def.growTime) / def.regrow + 1e-9)));
   }
 
-  /** How fast a crop grows today on plain ground: season, weather, Rich Soil and the Seed Lab (1 = spring sun). */
+  /**
+   * How fast a crop grows today on plain ground: season, weather, a drought, Rich Soil and the Seed Lab
+   * (1 = spring sun).
+   */
   growthToday(kind: CropKind): number {
-    return this.climateGrowth * this.cropGrowth(kind);
+    return this.climateGrowth * this.cropGrowth(kind) * (this.event?.kind === 'drought' ? EVENTS.drought : 1);
   }
 
-  /** ...and on a particular tile, counting a sprinkler. */
+  /** ...and on a particular tile: a sprinkler's water counts, and keeps any drought off. */
   tileGrowth(i: number, kind: CropKind): number {
-    return this.sprinklerGrowth(i) * this.growthToday(kind);
+    const water = this.sprinklerGrowth(i);
+    return water > 1 ? water * this.climateGrowth * this.cropGrowth(kind) : this.growthToday(kind);
   }
 
   /** A sprinkler's boost on a tile (1 if it's dry). Up to date even in the morning, before the day rebuilds it. */
@@ -602,6 +623,134 @@ export class Game {
     b.timer = 0;
     b.facing = to[0] >= from[0] ? 1 : -1;
     this.emit({ t: 'golden', x: from[0], y: from[1] });
+  }
+
+  /** Maybe something's different about today. Its own dice again. */
+  private rollEvent(): DayEvent | null {
+    if (this.round < EVENTS.from || this.lastNight || this.isBossDay()) return null;
+    const r = makeRng(hashSeed(this.seed, this.round, 991));
+    if (r() > EVENTS.chance) return null;
+    let pick = r() * EVENTS.weights.reduce((sum, [, w]) => sum + w, 0);
+    let kind: EventKind = 'fair';
+    for (const [k, w] of EVENTS.weights) {
+      pick -= w;
+      if (pick <= 0) {
+        kind = k;
+        break;
+      }
+    }
+    if (kind === 'fair') {
+      // something you could still plant this morning and sell tonight
+      const quick = CROP_ORDER.filter((k) => this.isUnlocked(k) && !CROPS[k].regrow && ripenDays(k, this.growthToday(k)) === 1);
+      return quick.length ? { kind, crop: quick[Math.floor(r() * quick.length)] } : null;
+    }
+    if (kind === 'hail') return { kind, at: 10 + r() * 26 };
+    if (kind === 'merchant') return { kind, offers: this.stockCart(r) };
+    return { kind };
+  }
+
+  /** The merchant's cart: something the store hasn't opened yet, and two cut-price upgrades. */
+  private stockCart(r: Rng): Offer[] {
+    const out: Offer[] = [];
+    const rare = UNLOCKS.find((u) => !this.unlocked.has(u.what) && (u.what in CROPS || u.what in DEFENSES || u.what in WEAPONS));
+    if (rare) {
+      const u = rare.what;
+      const price = u in CROPS ? MERCHANT.rare.crop : u in DEFENSES ? MERCHANT.rare.defense : MERCHANT.rare.weapon;
+      out.push({ id: `rare:${u}`, name: unlockName(u), text: `Before the store has it, and it stays in the store after.`, price });
+    }
+    const deals: Offer[] = [];
+    const soil = this.farmPrice('soil');
+    if (soil !== null && this.isUnlocked('soil')) {
+      deals.push({ id: 'soil', name: 'Rich Soil', text: 'The next level of Rich Soil, half price.', price: Math.round(soil * (1 - MERCHANT.soilOff)) });
+    }
+    const strains = CROP_ORDER.filter((k) => this.isUnlocked(k) && this.isUnlocked('lab') && hybridCost(k, this.hybrid[k]) !== null);
+    if (strains.length) {
+      const k = strains[Math.floor(r() * strains.length)];
+      deals.push({
+        id: `lab:${k}`, name: `${CROPS[k].name} seed stock`, text: `A Seed Lab level for ${cropPlural(k)}, half price.`,
+        price: Math.round(hybridCost(k, this.hybrid[k])! * (1 - MERCHANT.labOff)),
+      });
+    }
+    const guns = WEAPON_ORDER.filter((k) => this.weapons[k] > 0 && this.weaponPrice(k) !== null);
+    if (guns.length) {
+      const k = guns[Math.floor(r() * guns.length)];
+      deals.push({
+        id: `weapon:${k}`, name: `${WEAPONS[k].name} parts`, text: `The next level of your ${WEAPONS[k].name}, ${Math.round(MERCHANT.weaponOff * 100)}% off.`,
+        price: Math.round(this.weaponPrice(k)! * (1 - MERCHANT.weaponOff)),
+      });
+    }
+    for (let n = deals.length - 1; n > 0; n--) {
+      const j = Math.floor(r() * (n + 1));
+      [deals[n], deals[j]] = [deals[j], deals[n]];
+    }
+    return [...out, ...deals].slice(0, 3);
+  }
+
+  /** Why a deal on the cart can't be had, or null. */
+  offerProblem(id: string): string | null {
+    if (this.phase !== 'planning') return 'The merchant left at sunrise.';
+    const offer = this.event?.kind === 'merchant' ? this.event.offers?.find((o) => o.id === id) : undefined;
+    if (!offer) return 'Not on the cart.';
+    if (this.eventBought.includes(id)) return 'Sold!';
+    const [what, kind] = id.split(':');
+    if (what === 'soil' && this.farmPrice('soil') === null) return 'Your soil is as rich as it gets.';
+    if (what === 'lab' && hybridCost(kind as CropKind, this.hybrid[kind as CropKind]) === null) return 'The best strain there is.';
+    if (what === 'weapon' && this.weaponPrice(kind as WeaponKind) === null) return 'Already as good as it gets.';
+    if (what === 'rare' && this.unlocked.has(kind as Unlock)) return 'The store has it now.';
+    if (this.credits < offer.price) return 'Not enough credits.';
+    return null;
+  }
+
+  /** Buy a deal off the merchant's cart. */
+  buyOffer(id: string): boolean {
+    const problem = this.offerProblem(id);
+    if (problem) {
+      this.emit({ t: 'error', msg: problem });
+      return false;
+    }
+    const offer = this.event!.offers!.find((o) => o.id === id)!;
+    this.credits -= offer.price;
+    this.roundStats.spent += offer.price;
+    this.eventBought.push(id);
+    const [what, kind] = id.split(':');
+    if (what === 'rare') {
+      this.unlocked.add(kind as Unlock);
+      this.newUnlocks.push(kind as Unlock);
+    } else if (what === 'soil') this.farm.soil++;
+    else if (what === 'lab') this.hybrid[kind as CropKind]++;
+    else if (what === 'weapon') this.weapons[kind as WeaponKind]++;
+    this.emit({ t: 'buy' });
+    return true;
+  }
+
+  /** Where the merchant parks: a free spot in the wild country, handy to the farm. Tile index, or -1. */
+  merchantTile(): number {
+    if (this.event?.kind !== 'merchant' || this.phase !== 'planning') return -1;
+    const spots: [number, number][] = [[10, 1], [11, 1], [12, 1], [9, 1], [13, 1], [10, 14], [11, 14], [12, 14], [9, 14], [13, 14]];
+    for (const [x, y] of spots) {
+      const i = idx(x, y);
+      if (!OBSTACLE[i] && !this.burrows.some((b) => b.x === x && b.y === y)) return i;
+    }
+    return -1;
+  }
+
+  /** Hail: crops take a beating (not under a greenhouse), and the bunnies cower where they are for a while. */
+  private startHail(): void {
+    this.hailFell = true;
+    this.hail = EVENTS.hailSeconds;
+    let hit = 0;
+    if (!this.farm.greenhouse) {
+      for (const t of this.tiles) {
+        const c = t.crop;
+        if (!c) continue;
+        const def = CROPS[c.kind];
+        c.hp = Math.max(def.hp * 0.25, c.hp - def.hp * EVENTS.hailDamage);
+        c.shake = 0.4;
+        hit++;
+      }
+    }
+    this.roundStats.hailHit = hit;
+    this.emit({ t: 'hail' });
   }
 
   /** Maybe a customer in town wants something this morning. It has its own dice, like the golden bunny. */
@@ -722,6 +871,8 @@ export class Game {
         sold[c.kind] = n + 1;
       }
     }
+    const fair = this.event?.kind === 'fair' ? this.event.crop : undefined;
+    if (fair) this.roundStats.fairSold = Math.min(EVENTS.fairCap, sold[fair] ?? 0);
     // an open order counts whatever of its crop went to market tonight
     if (this.order) this.order.got = Math.min(this.order.want, this.order.got + (sold[this.order.kind] ?? 0));
     // what tonight's prices came to, and how much the market will remember tomorrow
@@ -755,7 +906,8 @@ export class Game {
   cropPrice(kind: CropKind, sold = 0): number {
     const over = Math.max(0, this.glut[kind] + sold - MARKET.glut);
     const sag = Math.max(MARKET.glutFloor, 1 - MARKET.glutDrop * over);
-    const bonus = (1 + STALL_PRICE * this.farm.stall) * (1 + HYBRID_VALUE * this.hybrid[kind]);
+    const bonus = (1 + STALL_PRICE * this.farm.stall) * (1 + HYBRID_VALUE * this.hybrid[kind]) *
+      (this.event?.kind === 'fair' && this.event.crop === kind && sold < EVENTS.fairCap ? EVENTS.fairMult : 1);
     return CROPS[kind].sellValue * SEASONS[this.season].sell * this.priceTrend(kind) * sag * bonus;
   }
 
@@ -1551,6 +1703,7 @@ export class Game {
       lots: this.lots.flatMap((own, n) => (own ? [n] : [])), lotsBought: this.lotsBought,
       tilled: [...this.tilled.keys()].filter((i) => this.tilled[i]),
       project: this.project, capDiscount: this.capDiscount, lastNight: this.lastNight, smoked: this.smoked, order: this.order,
+      event: this.event, eventBought: [...this.eventBought],
       market: { ...this.market }, glut: { ...this.glut }, wanted: { ...this.wanted },
       weapons: { ...this.weapons }, weapon: this.weapon, farm: { ...this.farm }, hybrid: { ...this.hybrid },
     };
@@ -1586,6 +1739,8 @@ export class Game {
     this.lastNight = !!d.lastNight && this.project === PROJECT.length;
     this.smoked = !!d.smoked;
     this.order = d.order && CROPS[d.order.kind] ? { ...d.order } : null;
+    this.event = d.event ?? null;
+    this.eventBought = [...(d.eventBought ?? [])];
     if (this.project === PROJECT.length && !this.lastNight) this.project = PROJECT.length - 1; // the cap never went on
     this.market = { ...evenMarket(1), ...d.market };
     this.glut = { ...evenMarket(0), ...d.glut };

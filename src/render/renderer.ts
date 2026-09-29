@@ -14,7 +14,7 @@ import { CRATER, currentMap, idx, inCrater, inMap, lotOfTile, lotRect, SCENERY, 
 import { BUNNY_COLORS } from './palette';
 import { dottedCircle, Particles, pixelDisc, pixelLine } from './particles';
 import { drawText, OUTLINE, PixelGrid, textWidth } from './pixels';
-import { menuBunny } from './icons';
+import { menuBunny, merchantCart } from './icons';
 import { type BunnyArt, forSeason, type Img, sprites } from './sprites';
 
 let tagIcon: Img | null = null;
@@ -360,6 +360,7 @@ export class Renderer {
     const shadows: [number, number, number][] = [];
     this.collectScenery(list, shadows);
     if (!title) this.collectCraterWorks(g, list);
+    if (!title) this.collectCart(g, list, shadows);
     this.collectTiles(g, list, shadows);
     for (const b of g.bunnies) this.collectBunny(g, b, list, shadows);
     for (const d of g.dogs) this.collectDog(d, list, shadows);
@@ -370,6 +371,7 @@ export class Renderer {
 
     this.drawCraterGlow(title ? 0 : g.project);
     if (!title) this.smokeCrater(g);
+    if (!title) this.drawWeatherEvent(g);
     for (const p of g.projectiles) this.drawPebble(p.x * T, p.y * T);
     this.drawShells(g);
     this.drawHose(g);
@@ -664,6 +666,17 @@ export class Renderer {
     }
     const frame = Math.floor(cycle * art.frames.length) % art.frames.length;
     return { frame, lift: frame >= 2 && frame <= 6 ? Math.round(Math.sin(((frame - 2) / 4) * Math.PI) * 6) : 0 };
+  }
+
+  /** The merchant's cart, parked by the farm for the morning. */
+  private collectCart(g: Game, list: Drawable[], shadows: [number, number, number][]): void {
+    const i = g.merchantTile();
+    if (i < 0) return;
+    const cx = tileX(i) * T + T / 2;
+    const by = tileY(i) * T + T - 2;
+    shadows.push([cx, by - 1, 15]);
+    this.put(list, merchantCart(), cx, by, { sort: by - 1 });
+    if (Math.sin(this.clock * 3) > 0.9) this.fx.add({ kind: 'sparkle', x: cx + (Math.random() - 0.5) * 24, y: by - 22, life: 0.4, color: '#ffe24a' });
   }
 
   private collectScenery(list: Drawable[], shadows: [number, number, number][]): void {
@@ -1110,6 +1123,28 @@ export class Renderer {
     else tip(Math.round(Math.max(x + 8, Math.min(x + w - 9, cx))), y + h - 1, 0, 1);
     ctx.drawImage(icon, x + 3, y + 3);
     drawText(ctx, label, x + 3 + icon.width + 3, y + 8, '#000000', null);
+  }
+
+  /** Today's event, over the field: a dry cast for a drought, and hail when it comes. */
+  private drawWeatherEvent(g: Game): void {
+    const ctx = this.ctx;
+    if (g.event?.kind === 'drought') {
+      ctx.fillStyle = 'rgba(255, 206, 110, 0.13)';
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+    }
+    if (g.hail > 0) {
+      ctx.fillStyle = 'rgba(150, 170, 200, 0.18)';
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+      for (let n = 0; n < 22; n++) {
+        // each stone a two-pixel pellet with a faint trail above it
+        const x = Math.random() * WORLD_W;
+        const y = Math.random() * WORLD_H * 0.85;
+        const life = 0.12 + Math.random() * 0.1;
+        this.fx.add({ kind: 'dot', x, y, vx: -40, vy: 460, color: n % 3 ? '#f4f9ff' : '#c8dcf2', size: 2, life });
+        this.fx.add({ kind: 'dot', x: x + 1, y: y - 4, vx: -40, vy: 460, color: '#a8c0dc', size: 1, life });
+      }
+      for (let n = 0; n < 3; n++) this.fx.add({ kind: 'sparkle', x: Math.random() * WORLD_W, y: Math.random() * WORLD_H, life: 0.2, color: '#ffffff' });
+    }
   }
 
   /** A smoke bomb went in: grey smoke keeps rolling out until the Buck does. */
@@ -1661,6 +1696,7 @@ export class Renderer {
     }
     if (best) return g.isSurfaced(best) ? BUNNIES[best.kind].name : `${BUNNIES[best.kind].name}, digging`;
     for (const d of g.dogs) if (Math.hypot(d.x - mx, d.y - 0.2 - my) < 0.5) return 'Guard dog';
+    if (view.hoverTile >= 0 && view.hoverTile === g.merchantTile()) return "Merchant's cart";
     const i = view.hoverTile;
     if (i < 0) return null;
     const t = g.tiles[i];

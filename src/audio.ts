@@ -151,6 +151,10 @@ export class Sfx {
         this.tone(1319 * k, 0.14, 'square', 0.09, undefined, 0.06);
         break;
       }
+      case 'hail':
+        // a few seconds of hailstones rattling down
+        if (this.ready(name, 1)) for (let n = 0; n < 60; n++) this.noise(0.02, 0.1 + Math.random() * 0.1, 'highpass', 2500 + Math.random() * 2500, undefined, n * 0.1);
+        break;
       case 'jingle':
         // a quick run up the scale: something shiny just showed up
         if (this.ready(name, 0.3)) [1047, 1319, 1568, 2093].forEach((f, n) => this.tone(f, 0.07, 'square', 0.07, undefined, n * 0.05));
@@ -304,6 +308,7 @@ export class Sfx {
         case 'golden': this.play('jingle'); break;
         case 'prize': this.play('fanfare'); break;
         case 'order': this.play('fanfare'); break;
+        case 'hail': this.play('hail'); break;
         case 'smoke': this.play('boom'); this.play('rumble'); break;
         case 'sundown': this.play('dusk'); break;
         default: break;

@@ -425,3 +425,37 @@ export function farmMiniMap(kind: MapKind): HTMLCanvasElement {
   miniMaps.set(kind, c);
   return c;
 }
+
+// ---------------------------------------------------------------- the travelling merchant
+
+const CART = [
+  '...rrwwrrwwrrwwrrwwrrwwrr...',
+  '..rrwwrrwwrrwwrrwwrrwwrrww..',
+  '.rrwwrrwwrrwwrrwwrrwwrrwwrr.',
+  '.RRWWRRWWRRWWRRWWRRWWRRWWRR.',
+  '..p......................p..',
+  '..p..oo....yy.....gg.....p..',
+  '..p.oOOo..yYYy...gGGg....p..',
+  '..p.oOOo..yYYy..cccccc...p..',
+  '..p..oo...cccccccCccccc..p..',
+  '.bbbbbbbbbbbbbbbbbbbbbbbbbb.',
+  '.bnnnnnnnnnnnnnnnnnnnnnnnnb.',
+  '.bnnnnnnnnnnnnnnnnnnnnnnnnb.',
+  '.bbbbbbbbbbbbbbbbbbbbbbbbbb.',
+  '...kkk................kkk...',
+  '..kwkwk..............kwkwk..',
+  '..kkWkk..............kkWkk..',
+  '..kwkwk..............kwkwk..',
+  '...kkk................kkk...',
+];
+
+let cart: Img | null = null;
+
+/** The travelling merchant's cart: a striped awning over crates and produce. */
+export function merchantCart(): Img {
+  cart ??= PixelGrid.fromRows(CART, {
+    r: '#c8342c', R: '#9a241e', w: '#f4ecd8', W: '#c8bca4', p: '#6e4626', o: '#e08a2a', O: '#f2a84a', y: '#e8c03a',
+    Y: '#ffe26a', g: '#4a903a', G: '#6cb84e', c: '#9a6a3c', C: '#7a502a', b: '#6e4626', n: '#a8743e', k: '#2a2226',
+  }).outlined().canvas();
+  return cart;
+}

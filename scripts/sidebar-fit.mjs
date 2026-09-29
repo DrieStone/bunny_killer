@@ -27,6 +27,7 @@ for (const [w, h] of SIZES) {
       game.glut.carrot = 9;
       if (st.plot) game.order = { who: 'Mrs. Pennywhistle', kind: 'sunflower', want: 14, got: 5, due: st.round + 2, bonus: 170 };
       game.loadSave(game.toSave());
+      if (st.plot) game.event = { kind: 'hail', at: 20 }; // the longest event line
       const r = game.plot;
       const at = (x, y) => y * 22 + x;
       game.place({ type: 'crop', kind: 'carrot' }, at(r.x0, r.y0));

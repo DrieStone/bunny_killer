@@ -148,6 +148,10 @@ b, strong, .bold, h1, h2, .btn, #menubar, .titlebar .title, .legend, .item .name
 .order-note[hidden] { display: none; }
 .order-note .got { color: #555; }
 .item.ordered { background: #fff6d8; }
+.item.fair { background: #ffe6f0; }
+.scout .event { margin-top: 2px; }
+.dialog table.offers td { padding: 4px 6px; vertical-align: middle; border-top: 1px dotted #999; }
+.dialog table.offers .btn { padding: 2px 12px; }
 .item.ordered.selected { background: #000; }
 .item .days { position: absolute; bottom: 2px; right: 3px; font: 9px Monaco, Menlo, monospace; color: #666; }
 .item .days.up { color: #177a1f; font-weight: bold; }

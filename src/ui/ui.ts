@@ -2,11 +2,11 @@
 import {
   ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, CROP_ORDER, cropPlural, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
   defenseStats, FARM, FARM_ORDER, type FarmUpgrade, firstRound, fruitsPerDay, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost,
-  lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
+  EVENTS, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
 } from '../config';
 import type { Game } from '../game';
-import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, repairIcon, spriteImg, weaponIcon } from '../render/icons';
+import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, merchantCart, repairIcon, spriteImg, weaponIcon } from '../render/icons';
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
@@ -102,6 +102,17 @@ function statLine(kind: DefenseKind, level: number): string {
 }
 
 const WEATHER_ICON: Record<string, string> = { sunny: '☀︎', rain: '☂︎', fog: '≋', snow: '❄︎' };
+
+/** One line for today's event, for the Scouting Report. */
+function eventLine(g: Game): string {
+  const e = g.event!;
+  switch (e.kind) {
+    case 'fair': return `<b>County Fair:</b> ${cropPlural(e.crop!)} sell ×${EVENTS.fairMult} tonight!`;
+    case 'hail': return g.farm.greenhouse ? '<b>Hail</b> coming; the greenhouse covers the crops.' : '<b>Hail</b> coming: rough on crops, easy shots.';
+    case 'drought': return '<b>Drought:</b> only watered crops grow full speed.';
+    case 'merchant': return '<b>A merchant</b> is by the farm: click the cart!';
+  }
+}
 
 const plural = (name: string) => (name.endsWith('y') && !name.endsWith('ey') ? `${name.slice(0, -1)}ies` : `${name}s`);
 
@@ -683,11 +694,19 @@ export class UI {
     const w = WEATHER[g.weather];
     const season = SEASONS[g.season];
     const firstOfSeason = (g.round - 1) % 7 === 0 && g.round > 1;
+    // today's event takes the weather's line (the weather's own blurb can wait)
     const forecast = `<div class="forecast"><span class="wx">${WEATHER_ICON[g.weather]}</span> <b>${w.name}.</b> ` +
-      `${g.weather === 'sunny' ? '' : w.blurb}${firstOfSeason || g.round === 1 ? ` <i>${season.name}: ${season.blurb}</i>` : ''}</div>`;
+      `${g.event ? eventLine(g) : g.weather === 'sunny' ? '' : w.blurb}` +
+      `${firstOfSeason || g.round === 1 ? ` <i>${season.name}: ${season.blurb}</i>` : ''}</div>`;
     const where = fromCrater > 0 ? `${g.burrows.length} burrows and the crater` : `${g.burrows.length} burrows`;
     this.set('scout', `${night}${forecast}<b>${total}</b> bunnies from ${where}.` +
       `${breed}${boss}<div class="kinds">${kinds}</div>${newcomers}`);
+    // the County Fair's crop, picked out on the shelf
+    const fair = g.event?.kind === 'fair' ? g.event.crop : undefined;
+    for (const k of CROP_ORDER) {
+      const cell = this.itemEls.get(`crop:${k}`);
+      if (cell && cell.classList.contains('fair') !== (fair === k)) cell.classList.toggle('fair');
+    }
     // an order from town, pinned at the top of the Seeds tab, with its seed picked out on the shelf
     const o = g.order;
     const note = $('order-note');
@@ -1234,6 +1253,9 @@ export class UI {
       `Bonked <b>${rs.kills}</b> ${rs.kills === 1 ? 'bunny' : 'bunnies'}.`,
       rs.prize && !rs.prizeCash ? `You caught the golden bunny! ${rs.prize}` : '',
       rs.orderNote,
+      rs.fairSold ? `The County Fair bought <b>${rs.fairSold}</b> ${cropPlural(g.event!.crop!, rs.fairSold)} at triple price!` : '',
+      g.event?.kind === 'hail' ? (rs.hailHit ? `Hail battered <b>${rs.hailHit}</b> ${rs.hailHit === 1 ? 'crop' : 'crops'}.`
+        : 'Hail rattled the greenhouse, but the crops were fine.') : '',
       rs.cropsLost ? `<b>${rs.cropsLost}</b> ${rs.cropsLost === 1 ? 'crop was' : 'crops were'} lost${rs.cropsStolen ? `, ${rs.cropsStolen} of them carried off by Bandits` : ''}.` : 'Not a single crop lost!',
       rs.structuresBroken ? `<b>${rs.structuresBroken}</b> ${rs.structuresBroken === 1 ? 'defense was' : 'defenses were'} chewed to bits.` : '',
       chewed ? `<b>${chewed}</b> ${chewed === 1 ? 'defense is' : 'defenses are'} chewed up. <b>Repair All</b> (Defense tab) fixes ` +
@@ -1343,6 +1365,31 @@ export class UI {
       new: () => this.chooseFarm(g.mode, () => this.showGameOver(rank)),
       scores: () => this.showHighScores(() => this.showGameOver(rank)),
     }, { Enter: 'new' });
+  }
+
+  /** The travelling merchant's cart: a few deals, today only. */
+  showMerchant(): void {
+    const g = this.game;
+    const offers = g.event?.kind === 'merchant' ? g.event.offers ?? [] : [];
+    const rows = offers.map((o) => {
+      const problem = g.offerProblem(o.id);
+      const sold = g.eventBought.includes(o.id);
+      return `<tr><td><b>${o.name}</b><br><span class="each">${o.text}</span></td><td class="n">${money(o.price)}</td>` +
+        `<td><button class="btn" data-act="buy:${o.id}"${problem ? ' disabled' : ''}>${sold ? 'Sold' : 'Buy'}</button></td></tr>`;
+    }).join('');
+    const actions: Record<string, () => void> = { ok: () => this.closeModal() };
+    for (const o of offers) {
+      actions[`buy:${o.id}`] = () => {
+        if (g.buyOffer(o.id)) this.hooks.changed();
+        this.showMerchant();
+      };
+    }
+    this.open('merchant', `
+      <div class="icon-row"><img src="${dataURL(merchantCart())}" alt="" style="width:84px;height:54px">
+      <div><h1>The Travelling Merchant</h1><p>"Finest goods from over the hill! Today only, friend. I'm gone when the day starts."</p></div></div>
+      <table class="offers">${rows || '<tr><td>The cart is empty.</td></tr>'}</table>
+      <p class="hint">You have ${money(g.credits)}.</p>
+      <div class="buttons"><button class="btn default" data-act="ok">Done</button></div>`, actions, { Enter: 'ok', Escape: 'ok' });
   }
 
   /** What Hard Mode changes, before you commit to it. */

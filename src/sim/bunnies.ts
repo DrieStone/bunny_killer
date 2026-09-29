@@ -36,6 +36,8 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
   b.moving = false;
   const weather = def.winter ? Math.max(1, WEATHER[g.weather].bunnySpeed) : WEATHER[g.weather].bunnySpeed;
   let speed = def.speed * bunnySpeedScale(g.round) * weather * (b.wet > 0 ? 0.5 : 1);
+  // hail: everybody hunkers down where they are (a Buck doesn't care, and nothing stops a golden bunny)
+  if (g.hail > 0 && !def.boss && !def.golden && b.state !== 'exit' && b.state !== 'dash') return;
   if (def.digger && digUp(g, b, dt)) return; // up out of its tunnel, looking around
   if (g.phase === 'sundown') {
     speed *= 1.5;
