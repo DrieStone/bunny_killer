@@ -1,5 +1,5 @@
 // Defenses, dogs, and turret pebbles.
-import { BUNNIES, defenseStats, DOG_SPEED, PEBBLE_SPEED, PERKS, SPRINKLER_PUSH } from '../config';
+import { BUNNIES, COLS, COMBOS, defenseStats, DOG_SPEED, PEBBLE_SPEED, PERKS, ROWS, SPRINKLER_PUSH } from '../config';
 import type { Game } from '../game';
 import type { Bunny } from '../types';
 import { N, tileX, tileY } from '../world';
@@ -23,20 +23,27 @@ export function updateDefenses(g: Game, dt: number): void {
         );
         if (victim) {
           g.damageBunny(victim, def.damage, 'trap');
-          s.cd = def.period;
+          // bait: a Carrot Decoy close by keeps the trade brisk, so the trap re-arms faster
+          const bait = near(i, COMBOS.baitRange, (j) => g.tiles[j].structure?.kind === 'decoy');
+          s.cd = def.period / (bait ? COMBOS.bait : 1);
           s.anim = 0;
           g.emit({ t: 'snap', x: cx, y: cy });
+          if (bait) g.emit({ t: 'combo', x: cx, y: cy });
         }
         break;
       }
       case 'scarecrow': {
         let scared = 0;
         const bossToo = s.level >= PERKS.scarecrow!.level;
+        let soggy = false;
         for (const b of g.bunnies) {
           if (!scareable(g, b, bossToo) || Math.hypot(b.x - cx, b.y - cy) > def.radius) continue;
-          spook(b, cx, cy, def.duration);
+          // soggy scare: a bunny the sprinkler already soaked runs twice as long
+          spook(b, cx, cy, def.duration * (b.wet > 0 ? COMBOS.soggy : 1));
+          if (b.wet > 0) soggy = true;
           scared++;
         }
+        if (soggy) g.emit({ t: 'combo', x: cx, y: cy });
         if (scared > 0) {
           s.cd = def.period;
           s.anim = 0;
@@ -107,9 +114,12 @@ export function updateDefenses(g: Game, dt: number): void {
         if (target) {
           g.damageBunny(target, def.damage, 'bee');
           if (!target.dead && scareable(g, target, false)) spook(target, cx, cy, def.duration);
-          s.cd = def.period;
+          // pollination: a sunflower in range keeps the hive busy
+          const pollen = near(i, def.radius, (j) => g.tiles[j].crop?.kind === 'sunflower');
+          s.cd = def.period / (pollen ? COMBOS.pollen : 1);
           s.anim = 0;
           g.emit({ t: 'sting', x: target.x, y: target.y });
+          if (pollen && g.rng() < 0.3) g.emit({ t: 'combo', x: cx, y: cy });
         }
         break;
       }
@@ -125,6 +135,23 @@ export function updateDefenses(g: Game, dt: number): void {
 
 /** A golden bunny is the player's to catch: no defense touches it. */
 const prize = (b: Bunny) => !!BUNNIES[b.kind].golden;
+
+/** Is there a tile within `r` of tile `i` that passes `test`? */
+export function near(i: number, r: number, test: (j: number) => boolean): boolean {
+  const x = tileX(i);
+  const y = tileY(i);
+  const k = Math.ceil(r);
+  for (let dy = -k; dy <= k; dy++) {
+    for (let dx = -k; dx <= k; dx++) {
+      if ((dx === 0 && dy === 0) || Math.hypot(dx, dy) > r) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+      if (test(ny * COLS + nx)) return true;
+    }
+  }
+  return false;
+}
 
 function scareable(g: Game, b: Bunny, bossToo: boolean): boolean {
   if (b.dead || prize(b) || !g.isSurfaced(b) || (BUNNIES[b.kind].boss && !bossToo)) return false;
@@ -153,10 +180,13 @@ function updateDogs(g: Game, dt: number): void {
     const hx = tileX(d.home) + 0.5;
     const hy = tileY(d.home) + 1.05;
     let target = d.target >= 0 ? g.bunnies.find((b) => b.id === d.target) : undefined;
+    // watchdog: anything chewing on your defenses in reach comes first
+    const chewer = g.bunnies.find((b) => !b.dead && b.state === 'chew' && !prize(b) && Math.hypot(b.x - hx, b.y - hy) <= def.radius);
+    if (chewer && target?.state !== 'chew') target = chewer;
     if (!target || target.dead || !g.isSurfaced(target) || Math.hypot(target.x - hx, target.y - hy) > def.radius) {
       target = nearest(g, hx, hy, def.radius) ?? undefined;
-      d.target = target ? target.id : -1;
     }
+    d.target = target ? target.id : -1;
     const gx = target ? target.x : hx;
     const gy = target ? target.y : hy;
     const dx = gx - d.x;
@@ -179,7 +209,9 @@ function updateDogs(g: Game, dt: number): void {
       d.run += dt;
     }
     if (target && dist <= 0.55 && d.cd <= 0) {
-      g.damageBunny(target, def.damage, 'dog');
+      const watch = target.state === 'chew';
+      g.damageBunny(target, def.damage + (watch ? COMBOS.watchdog : 0), 'dog');
+      if (watch) g.emit({ t: 'combo', x: d.x, y: d.y });
       d.cd = def.period;
       g.emit({ t: 'bite', x: d.x, y: d.y });
     }
@@ -199,7 +231,12 @@ function updateProjectiles(g: Game, dt: number): void {
     const d = Math.hypot(dx, dy);
     const step = PEBBLE_SPEED * dt;
     if (d <= step + 0.05) {
-      if (alive && !g.dodges(t)) g.damageBunny(t, p.damage);
+      if (alive && !g.dodges(t)) {
+        // dazed: a Burrower knocked up out of its tunnel is a sitting target
+        const dazed = BUNNIES[t.kind].digger && t.popped > 0;
+        g.damageBunny(t, p.damage * (dazed ? COMBOS.dazed : 1));
+        if (dazed) g.emit({ t: 'combo', x: t.x, y: t.y });
+      }
       p.done = true;
     } else {
       p.x += (dx / d) * step;

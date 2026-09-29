@@ -229,4 +229,5 @@ export type GameEvent =
   | { t: 'golden'; x: number; y: number } // a golden bunny starts its dash
   | { t: 'prize'; x: number; y: number; text: string; short: string }
   | { t: 'order'; x: number; y: number; amount: number }
-  | { t: 'hail' };
+  | { t: 'hail' }
+  | { t: 'combo'; x: number; y: number }; // two defenses just worked together

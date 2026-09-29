@@ -1,7 +1,7 @@
 // Draws the farm: a textured ground baked once per layout, y-sorted sprites with soft shadows,
 // particles, time-of-day lighting, and a little ambient life. World units are 32px tiles.
 import {
-  BUNNIES, COLS, CROPS, DEFENSES, defenseStats, LOT_COUNT, lotPrice, MAX_LEVEL, ROUND_SECONDS, ROWS, type Season, SMOKE_BOMB, TILE, WEAPONS,
+  BUNNIES, COLS, COMBOS, CROPS, DEFENSES, type DefenseKind, defenseStats, LOT_COUNT, lotPrice, MAX_LEVEL, ROUND_SECONDS, ROWS, type Season, SMOKE_BOMB, TILE, WEAPONS,
   weaponStats,
   upgradeCost, WORLD_H, WORLD_W,
 } from '../config';
@@ -98,6 +98,7 @@ export class Renderer {
   private meadow: HTMLCanvasElement | null = null; // the grass layer, one per season
   private meadowKey = '';
   private soilTiles: HTMLCanvasElement[] = [];
+  private comboAt = new Map<string, number>(); // when a combo last popped at a spot
   private season: Season = 'spring';
   private weatherFx: { x: number; y: number; v: number; s: number; p: number }[] = [];
   private fogPhase = 0;
@@ -276,6 +277,15 @@ export class Renderer {
           fx.text(x, y - 26, `+${e.amount}¢`, '#ffe24a', 1.4);
           fx.burst(x, y - 12, 7, ['#ffe24a', '#ffffff'], 80, { grav: 0, life: 0.4, size: 2 });
           break;
+        case 'combo': {
+          // not too chatty: one pop per spot every second and a half
+          const key = `${Math.round(x / T)},${Math.round(y / T)}`;
+          if ((this.comboAt.get(key) ?? -9) > this.clock - 1.5) break;
+          this.comboAt.set(key, this.clock);
+          fx.text(x, y - 30, 'COMBO!', '#ffe24a', 0.8);
+          fx.burst(x, y - 10, 10, ['#ffe24a', '#ffffff'], 90, { grav: 0, life: 0.4, size: 2 });
+          break;
+        }
         case 'order':
           fx.text(x, y - 20, `ORDER FILLED! +${e.amount}¢`, '#ffe24a', 2.2);
           fx.burst(x, y - 10, 50, ['#ffe24a', '#ff6a5a', '#8fd3ff', '#7ddc4a', '#ffffff'], 190, { grav: 70, life: 1.3, size: 2 });
@@ -1409,6 +1419,7 @@ export class Renderer {
       if (s && DEFENSES[s.kind].radius > 1 && view.selected?.type !== 'upgrade') {
         this.range(i, defenseStats(s.kind, s.level).radius, '#ffffff');
       }
+      if (s && !view.selected) this.drawCombos(g, i, s.kind, s.level);
     }
     if (i < 0 || !view.mouseIn) return;
     const tx = tileX(i) * T;
@@ -1484,6 +1495,56 @@ export class Renderer {
     ctx.fillStyle = problem ? '#ff4a3a' : '#ffffff';
     this.frame(tx, ty, T, T);
     if (item.type === 'defense' && DEFENSES[item.kind].radius > 1) this.range(i, DEFENSES[item.kind].radius, problem ? '#ff8a7a' : '#ffffff');
+    if (item.type === 'defense' && !problem) this.drawCombos(g, i, item.kind, 1);
+  }
+
+  /** Defenses (and sunflowers) that would work with this one, for gold links in the morning. */
+  private comboPartners(g: Game, i: number, kind: DefenseKind, level: number): number[] {
+    const x = tileX(i);
+    const y = tileY(i);
+    const within = (j: number, r: number) => Math.hypot(tileX(j) - x, tileY(j) - y) <= r;
+    const R = (k: DefenseKind, lv: number) => defenseStats(k, lv).radius;
+    const out: number[] = [];
+    for (let j = 0; j < g.tiles.length && out.length < 8; j++) {
+      if (j === i) continue;
+      const t = g.tiles[j];
+      const s = t.structure;
+      let pair = false;
+      switch (kind) {
+        case 'beehive': pair = t.crop?.kind === 'sunflower' && within(j, R('beehive', level)); break;
+        case 'trap': pair = s?.kind === 'decoy' && within(j, COMBOS.baitRange); break;
+        case 'decoy': pair = s?.kind === 'trap' && within(j, COMBOS.baitRange); break;
+        case 'scarecrow': pair = s?.kind === 'sprinkler' && within(j, R('scarecrow', level) + R('sprinkler', s.level)); break;
+        case 'sprinkler': pair = s?.kind === 'scarecrow' && within(j, R('sprinkler', level) + R('scarecrow', s.level)); break;
+        case 'turret': pair = s?.kind === 'thumper' && within(j, R('turret', level) + R('thumper', s.level)); break;
+        case 'thumper': pair = s?.kind === 'turret' && within(j, R('thumper', level) + R('turret', s.level)); break;
+        case 'doghouse': pair = !!s && DEFENSES[s.kind].blocks && within(j, R('doghouse', level)); break;
+        case 'fence': pair = s?.kind === 'doghouse' && within(j, R('doghouse', s.level)); break;
+        default: break;
+      }
+      if (pair) out.push(j);
+    }
+    return out;
+  }
+
+  /** Gold dotted links from a defense to its combo partners, each with a little star. */
+  private drawCombos(g: Game, i: number, kind: DefenseKind, level: number): void {
+    const ctx = this.ctx;
+    const x0 = tileX(i) * T + T / 2;
+    const y0 = tileY(i) * T + T / 2;
+    ctx.fillStyle = '#ffe24a';
+    for (const j of this.comboPartners(g, i, kind, level)) {
+      const x1 = tileX(j) * T + T / 2;
+      const y1 = tileY(j) * T + T / 2;
+      const n = Math.max(1, Math.floor(Math.hypot(x1 - x0, y1 - y0) / 4));
+      const phase = Math.floor(this.clock * 8) % 2;
+      for (let k = phase; k <= n; k += 2) {
+        ctx.fillRect(Math.round(x0 + ((x1 - x0) * k) / n) - 1, Math.round(y0 + ((y1 - y0) * k) / n) - 1, 2, 2);
+      }
+      ctx.fillRect(x1 - 1, y1 - 5, 2, 10);
+      ctx.fillRect(x1 - 5, y1 - 1, 10, 2);
+      ctx.fillRect(x1 - 2, y1 - 2, 4, 4);
+    }
   }
 
   private range(i: number, r: number, color: string): void {

@@ -91,6 +91,30 @@ export function fruitsPerDay(kind: CropKind, speed = 1): number {
   return regrow ? Math.max(1, Math.floor((ROUND_SECONDS * speed) / regrow + 1e-9)) : 1;
 }
 
+// ---------------------------------------------------------------- combos: defenses that work better together
+
+/**
+ * - Soggy scare: a scarecrow scares a bunny soaked by a sprinkler `soggy` times as long.
+ * - Pollination: a beehive with a sunflower in range stings `pollen` times as often.
+ * - Dazed: a Burrower knocked loose (a thumper does it) takes `dazed` times the damage from turret pebbles.
+ * - Watchdog: a dog goes for a bunny chewing a defense first, and bites it `watchdog` harder.
+ * - Bait: a snap trap within `baitRange` tiles of a Carrot Decoy re-arms `bait` times as fast.
+ */
+export const COMBOS = { soggy: 2, pollen: 2, dazed: 2, watchdog: 1, bait: 2, baitRange: 2 };
+
+/** What each defense's combo is, for the Almanac. */
+export const COMBO_TEXT: Partial<Record<DefenseKind, string>> = {
+  scarecrow: 'Combo: a bunny soaked by a sprinkler runs from it twice as long.',
+  sprinkler: 'Combo: a bunny it soaks runs from a scarecrow twice as long.',
+  beehive: 'Combo: with a sunflower growing in range, the bees sting twice as often.',
+  turret: 'Combo: its pebbles hit a dazed Burrower twice as hard. Thumpers daze them.',
+  thumper: 'Combo: a Burrower it knocks loose takes double from turrets while dazed.',
+  doghouse: 'Combo: the dog goes for bunnies chewing your defenses first, and bites them harder.',
+  fence: 'Combo: a dog in reach goes for bunnies chewing it first, and bites them harder.',
+  trap: 'Combo: within 2 tiles of a Carrot Decoy, it re-arms twice as fast.',
+  decoy: 'Combo: snap traps within 2 tiles of it re-arm twice as fast.',
+};
+
 // ---------------------------------------------------------------- events: some days are different
 
 export type EventKind = 'fair' | 'hail' | 'drought' | 'merchant';

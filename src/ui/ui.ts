@@ -1,6 +1,6 @@
 // The System 7 chrome around the farm: menubar, Farm Store, Almanac, and dialogs.
 import {
-  ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, CROP_ORDER, cropPlural, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
+  ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, COMBO_TEXT, CROP_ORDER, cropPlural, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
   defenseStats, FARM, FARM_ORDER, type FarmUpgrade, firstRound, fruitsPerDay, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost,
   EVENTS, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
@@ -869,7 +869,9 @@ export class UI {
         `<p>${c.blurb}</p>${this.marketNote(item.kind)}${lock ? '' : `<p class="hint">${hint}</p>`}`;
     }
     const d = DEFENSES[item.kind];
-    return `<div class="title">${d.name} — ${d.cost}¢</div>${locked}<div class="meta">${statLine(item.kind, 1)}</div><p>${d.blurb}</p>`;
+    const combo = COMBO_TEXT[item.kind];
+    return `<div class="title">${d.name} — ${d.cost}¢</div>${locked}<div class="meta">${statLine(item.kind, 1)}</div><p>${d.blurb}</p>` +
+      (combo && !lock ? `<p class="hint">★ ${combo}</p>` : '');
   }
 
   /** Almanac text for a weapon, farm upgrade, or Seed Lab strain. */
