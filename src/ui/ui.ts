@@ -49,6 +49,7 @@ export interface UiHooks {
   replayTutorial(): void;
   keepFarming(): void;
   newDaily(): void;
+  replayIntro(): void;
   achievements(): Record<string, string>;
   guide(): Guide;
   daily(): { key: string; number: number; map: MapKind; best: DailyResult | null; resumable: boolean };
@@ -227,6 +228,7 @@ export class UI {
       case 'scores': this.showHighScores(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'retire': this.confirmRetire(); break;
       case 'tutorial': this.hooks.replayTutorial(); break;
+      case 'intro': this.hooks.replayIntro(); break;
       case 'autoskip': this.hooks.setAutoSkip(!this.hooks.autoSkip()); break;
       case 'daily': this.showDailyIntro(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'guide': this.showGuide(this.modal === 'title' ? () => this.showTitle() : undefined); break;

@@ -34,6 +34,9 @@ interface Drawable {
 }
 
 const T = TILE;
+/** The opening: when the asteroid starts to fall, when it lands, and when it's over. */
+const INTRO = { fall: 0.9, impact: 2.3, end: 6.2 };
+
 const SMOKE = ['#7c7c86', '#8e8e98', '#a4a4ae', '#b8b8c2']; // smoke-bomb smoke, darkest to lightest
 
 /** Crumbs a nibbling bunny sends flying, by crop. */
@@ -164,6 +167,10 @@ export class Renderer {
   private soilTiles: HTMLCanvasElement[] = [];
   private comboAt = new Map<string, number>(); // when a combo last popped at a spot
   private celebrateAt = -1; // when the victory began (renderer clock), or -1
+  private introAt = -1; // when the opening began (renderer clock), or -1
+  private introBoom = false;
+  private shake = 0; // 0..1: how hard the ground's jumping
+  private flash = 0; // 0..1: a white flash over everything
   private lastGame: Game | null = null;
   private bites = new Map<Img, Img[]>(); // crop sprites with bites out of them
   private capLanded = true;
@@ -204,7 +211,114 @@ export class Renderer {
   /** Copy the finished frame to the page, blocky. */
   private present(): void {
     this.out.imageSmoothingEnabled = false;
+    if (this.shake > 0) {
+      // the ground jumps: whole art pixels only
+      const z = this.canvas.width / WORLD_W;
+      const dx = Math.round((Math.random() - 0.5) * 6 * this.shake) * z;
+      const dy = Math.round((Math.random() - 0.5) * 6 * this.shake) * z;
+      this.out.fillStyle = '#000';
+      this.out.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.out.drawImage(this.world, dx, dy, this.canvas.width, this.canvas.height);
+      return;
+    }
     this.out.drawImage(this.world, 0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  // ------------------------------------------------------------ the opening: the night the asteroid came down
+
+  /** Seconds into the opening, or -1 when it isn't playing. */
+  get introTime(): number {
+    return this.introAt < 0 ? -1 : this.clock - this.introAt;
+  }
+
+  startIntro(): void {
+    this.introAt = this.clock;
+    this.introBoom = false;
+    this.fx.clear();
+  }
+
+  stopIntro(): void {
+    this.introAt = -1;
+    this.shake = 0;
+    this.flash = 0;
+  }
+
+  private drawIntro(dt: number): void {
+    const t = this.introTime;
+    if (t < 0) return;
+    if (t > INTRO.end) {
+      this.stopIntro();
+      return;
+    }
+    const ctx = this.ctx;
+    const cx = (CRATER.x + 1) * T;
+    const cy = (CRATER.y + 1) * T - 6;
+    // night, lifting a while after the impact
+    const lift = Math.max(0, Math.min(1, (t - INTRO.impact - 1.3) / 1.9));
+    const night = 0.84 * (1 - lift);
+    if (night > 0) {
+      ctx.fillStyle = `rgba(8, 14, 44, ${night})`;
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+      ctx.globalAlpha = night / 0.84;
+      for (let n = 0; n < 80; n++) {
+        if (Math.sin(this.clock * 3 + n * 1.7) < -0.5) continue;
+        ctx.fillStyle = n % 6 ? '#dfe8ff' : '#fff6c8';
+        ctx.fillRect(Math.floor(rand(n, 1, 91) * WORLD_W), Math.floor(rand(n, 2, 91) * WORLD_H * 0.75), 1, 1);
+      }
+      ctx.globalAlpha = 1;
+      this.fx.draw(ctx); // sparks and debris shine through the dark
+    }
+    if (t < INTRO.impact) {
+      // the asteroid, coming in fast and green over the treetops
+      const k = Math.max(0, (t - INTRO.fall) / (INTRO.impact - INTRO.fall));
+      if (k > 0) {
+        const e = k * k;
+        const x = -60 + (cx + 60) * e;
+        const y = -90 + (cy + 90) * e;
+        for (let n = 0; n < 4; n++) {
+          this.fx.add({
+            x: x + (Math.random() - 0.5) * 8, y: y + (Math.random() - 0.5) * 8, vx: -60 - Math.random() * 60, vy: -80 - Math.random() * 50,
+            color: n === 0 ? '#ffffff' : n === 1 ? '#fff1a8' : '#9dff6b', life: 0.5 + Math.random() * 0.3, size: 2,
+          });
+        }
+        ctx.globalCompositeOperation = 'lighter';
+        const grd = ctx.createRadialGradient(x, y, 1, x, y, 26);
+        grd.addColorStop(0, 'rgba(160,255,120,0.9)');
+        grd.addColorStop(1, 'rgba(120,255,90,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(x - 26, y - 26, 52, 52);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#2a3326';
+        pixelDisc(ctx, x, y, 5);
+        ctx.fillStyle = '#9dff6b';
+        pixelDisc(ctx, x - 1, y - 1, 2);
+      }
+      if (t > 0.4) this.caption('Autumn, 1993.', Math.min(1, (t - 0.4) * 2));
+    } else if (!this.introBoom) {
+      // impact
+      this.introBoom = true;
+      this.shake = 1;
+      this.flash = 1;
+      this.fx.burst(cx, cy, 90, ['#6b4a2a', '#8a6a3a', '#9dff6b', '#ffffff', '#3a2a1a'], 260, { grav: 180, life: 1.4, size: 3 });
+      for (let n = 0; n < 24; n++) this.fx.puff(cx + (Math.random() - 0.5) * 80, cy + (Math.random() - 0.5) * 30, 14, n % 2 ? '#8a7a64' : '#a8987e', 1.6);
+      this.fx.ring(cx, cy, 120, '#fff6c8', 0.7);
+      this.fx.ring(cx, cy, 70, '#9dff6b', 0.9);
+    }
+    if (this.flash > 0) {
+      ctx.fillStyle = `rgba(255, 255, 240, ${this.flash})`;
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+      this.flash = Math.max(0, this.flash - dt * 1.4);
+    }
+    this.shake = Math.max(0, this.shake - dt * 1.6);
+    if (t > INTRO.impact + 1.2) this.caption('Years later...', Math.min(1, (t - INTRO.impact - 1.2) * 1.5) * Math.min(1, (INTRO.end - t) * 2));
+  }
+
+  /** Big white pixel words low in the middle of the field. */
+  private caption(text: string, alpha: number): void {
+    const w = textWidth(text) * 2;
+    this.ctx.globalAlpha = Math.max(0, alpha);
+    drawText(this.ctx, text, Math.round(WORLD_W / 2 - w / 2), Math.round(WORLD_H * 0.78), '#ffffff', OUTLINE, 2);
+    this.ctx.globalAlpha = 1;
   }
 
   // ------------------------------------------------------------ events -> effects
@@ -478,6 +592,7 @@ export class Renderer {
     this.drawLight(g, view, dt);
     if ((g.phase === 'round' || g.phase === 'sundown') && view.mouseIn) this.drawCrosshair(g, view);
     if (!title) this.drawHoverLabel(g, view);
+    this.drawIntro(dt);
     this.present();
   }
 

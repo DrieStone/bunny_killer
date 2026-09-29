@@ -7,6 +7,7 @@ import { dailyFor, FARMS, type MapKind } from './world';
 import { ACHIEVEMENTS, type Noticed, satisfied } from './achievements';
 import { Game } from './game';
 import { Renderer, type View } from './render/renderer';
+import { menuBunny } from './render/icons';
 import { loadSprites } from './render/sprites';
 import * as store from './save';
 import type { Phase, ShopItem } from './types';
@@ -235,6 +236,9 @@ const hooks: UiHooks = {
     persist();
     ui.banner(`Day ${game.round}`, 'The crater is sealed. The bunnies are not impressed.', 2.4);
   },
+  replayIntro() {
+    playIntro();
+  },
   replayTutorial() {
     tutorial.restart();
     ui.toast('Tutorial tips are back on. Start a new game to see them all.');
@@ -345,6 +349,10 @@ canvas.addEventListener('pointerdown', (e) => {
   unlockAudio();
   toWorld(e);
   if (skipCelebration()) return;
+  if (introPlaying) {
+    endIntro();
+    return;
+  }
   if (ui.modalOpen) return;
   if (classic) {
     if (e.button === 0 && !paused) classic.fire(view.mouseX / TILE, view.mouseY / TILE);
@@ -399,6 +407,69 @@ canvas.addEventListener('wheel', (e) => {
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+// ---------------------------------------------------------------- the opening
+
+let introPlaying = false;
+let introBoomed = false;
+
+function playIntro(): void {
+  ui.closeModal();
+  game.setupAttract();
+  renderer.startIntro();
+  introPlaying = true;
+  introBoomed = false;
+  sfx.play('whoosh');
+}
+
+/** Called every frame: sounds on cue, and the title when it's over. */
+function tickIntro(): void {
+  if (!introPlaying) return;
+  const t = renderer.introTime;
+  if (!introBoomed && t >= 2.3) {
+    introBoomed = true;
+    sfx.play('boom');
+    sfx.play('rumble');
+  }
+  if (t < 0) endIntro();
+}
+
+function endIntro(): void {
+  if (!introPlaying) return;
+  introPlaying = false;
+  renderer.stopIntro();
+  ui.showTitle();
+}
+
+/** The browser tab's icon, and a big one for a phone or tablet home screen: the menubar bunny, blown up. */
+function setIcons(): void {
+  const bunny = menuBunny();
+  const make = (size: number, bg: string | null): string => {
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    const ctx = c.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    if (bg) {
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, size, size);
+    }
+    const k = Math.floor((size * (bg ? 0.8 : 1)) / Math.max(bunny.width, bunny.height));
+    ctx.drawImage(bunny, Math.floor((size - bunny.width * k) / 2), Math.floor((size - bunny.height * k) / 2), bunny.width * k, bunny.height * k);
+    return c.toDataURL();
+  };
+  const link = (rel: string, href: string) => {
+    let el = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+    if (!el) {
+      el = document.createElement('link');
+      el.rel = rel;
+      document.head.appendChild(el);
+    }
+    el.href = href;
+  };
+  link('icon', make(32, null));
+  link('apple-touch-icon', make(180, '#8cc152'));
+}
+
 /** The fireworks can be skipped: straight to the victory dialog. */
 function skipCelebration(): boolean {
   if (victoryWait <= 0) return false;
@@ -411,6 +482,10 @@ window.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   unlockAudio();
   if (skipCelebration()) return;
+  if (introPlaying) {
+    endIntro();
+    return;
+  }
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (key === ' ') e.preventDefault();
   if (ui.modalOpen) {
@@ -520,6 +595,7 @@ function frame(now: number): void {
     return;
   }
   if (achieveCheck >= 0 && (achieveCheck -= dt) < 0) checkAchievements();
+  tickIntro();
   if (victoryWait > 0) {
     const before = victoryWait;
     victoryWait -= dt;
@@ -627,7 +703,10 @@ function songFor(): Song | null {
 document.addEventListener('pointerdown', unlockAudio, { capture: true });
 
 game.setupAttract();
-ui.showTitle();
+setIcons();
+// the opening (not for automated runs, which want the title straight away)
+if (navigator.webdriver) ui.showTitle();
+else playIntro();
 requestAnimationFrame(frame);
 
 // A handle for poking at the game from the console / automated screenshots.
