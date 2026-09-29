@@ -5,6 +5,8 @@
 **A farm sim and tower defense game that plays in your browser, and the long-awaited follow-up to
 _Bunny Killer II_ (1993) and _Bunny Killer 3_ (1994) for the Macintosh.**
 
+### ▶ [Play it in your browser](https://driestone.github.io/bunny_killer/)
+
 > *It's been years since the asteroid. The bunnies never left… and some of them glow.*
 
 Plant crops in the morning. Build defenses around them, then spend the day bonking bunnies with your sling
@@ -16,7 +18,12 @@ It looks and sounds like 1993: a System 7 desktop with a menubar, Balloon Help, 
 
 ## Play
 
-Build the one-file version and double-click it:
+**In your browser:** https://driestone.github.io/bunny_killer/. There's nothing to install, and your farm
+saves in the browser. It plays with a mouse or on a touch screen (an iPad, or a phone held sideways).
+
+**Offline:** download [bunny-killer-4.html](https://driestone.github.io/bunny_killer/bunny-killer-4.html)
+(right-click › Save Link As) and double-click it. That one file is the whole game, about half a megabyte
+with the art, sound, and code inside, and it runs with no internet. To build it yourself:
 
 ```sh
 npm install
@@ -24,9 +31,7 @@ npm run build:single      # writes dist/bunny-killer-4.html
 open dist/bunny-killer-4.html
 ```
 
-That file is the whole game, about half a megabyte with the art, sound, and code inside. It needs no server
-and nothing online, and your farm saves in the browser. It plays with a mouse or on a touch screen (an iPad,
-or a phone held sideways).
+The site rebuilds itself from `main` on every push (`.github/workflows/pages.yml`: tests, build, publish).
 
 To work on it, run the dev server: `npm run dev`, then open http://localhost:5190. (The npm scripts set
 environment variables the Unix way; on Windows, run them from WSL or Git Bash.)
