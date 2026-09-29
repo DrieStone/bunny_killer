@@ -2,7 +2,7 @@
 import { Sfx } from './audio';
 import { Classic, type ClassicEvent } from './classic';
 import { Music, type Song } from './music';
-import { cropPlural, DAILY, type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
+import { BUNNIES, cropPlural, DAILY, type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
 import { dailyFor, FARMS, type MapKind } from './world';
 import { ACHIEVEMENTS, type Noticed, satisfied } from './achievements';
 import { Game } from './game';
@@ -339,11 +339,35 @@ canvas.addEventListener('pointermove', (e) => {
   if (painting && ui.selected && paintable(ui.selected)) placeAtHover(false);
 });
 
-canvas.addEventListener('pointerleave', () => {
+canvas.addEventListener('pointerleave', (e) => {
+  // a finger lifting off isn't leaving: keep what was tapped in the Almanac
+  if (e.pointerType === 'touch') return;
   view.mouseIn = false;
   view.hoverTile = -1;
   ui.hoverTile = -1;
 });
+
+/** A fingertip is fatter than a cursor: a tap near a bunny counts as aimed at it. */
+function fingerAim(e: PointerEvent): void {
+  if (e.pointerType !== 'touch') return;
+  const x = view.mouseX / TILE;
+  const y = view.mouseY / TILE;
+  if (game.bunnyAt(x, y)) return;
+  const r = canvas.getBoundingClientRect();
+  let best = null;
+  let bestD = Math.max(0.6, (20 / r.width) * (WORLD_W / TILE)); // about 20 screen pixels
+  for (const b of game.bunnies) {
+    if (b.dead || !game.isSurfaced(b)) continue;
+    const d = Math.hypot(b.x - x, b.y - BUNNIES[b.kind].aim - y);
+    if (d < bestD) {
+      best = b;
+      bestD = d;
+    }
+  }
+  if (!best) return;
+  view.mouseX = best.x * TILE;
+  view.mouseY = (best.y - BUNNIES[best.kind].aim) * TILE;
+}
 
 canvas.addEventListener('pointerdown', (e) => {
   unlockAudio();
@@ -360,6 +384,7 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   if (game.phase === 'round' || game.phase === 'sundown') {
     if (e.button === 0 && !paused) {
+      fingerAim(e);
       game.fire(view.mouseX / TILE, view.mouseY / TILE);
       firing = true;
       canvas.setPointerCapture(e.pointerId);
@@ -540,8 +565,14 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------------------------------------------------------------- layout
 
+let fitted = '';
+
 function fit(): void {
   const dpr = window.devicePixelRatio || 1;
+  // checked every frame: phones settle their size late, and a new screen density doesn't always say so
+  const size = `${window.innerWidth}x${window.innerHeight}@${dpr}`;
+  if (size === fitted) return;
+  fitted = size;
   const side = document.getElementById('side') as HTMLElement;
   const minSide = 262;
   const gutters = 14 + 28 + 4; // between the windows, the desk's padding, window borders
@@ -570,14 +601,6 @@ function fit(): void {
 }
 fit();
 window.addEventListener('resize', fit);
-// moving the window to a screen with a different pixel density doesn't always fire a resize
-const watchDensity = (): void => {
-  matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener('change', () => {
-    fit();
-    watchDensity();
-  }, { once: true });
-};
-watchDensity();
 
 // ---------------------------------------------------------------- loop
 
@@ -588,6 +611,7 @@ let last = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  fit();
   const modal = ui.modalOpen;
   if (classic) {
     frameClassic(classic, dt, !paused && !modal);

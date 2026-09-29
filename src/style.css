@@ -3,7 +3,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html, body { margin: 0; height: 100%; overflow: hidden; }
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: manipulation; }
 
 body {
   font: 12px/1.35 Geneva, 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -87,7 +87,18 @@ b, strong, .bold, h1, h2, .btn, #menubar, .titlebar .title, .legend, .item .name
 .content { position: relative; }
 
 #farm-win .content { line-height: 0; }
-#game { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: pointer; }
+#game { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: pointer; touch-action: none;
+  -webkit-touch-callout: none; }
+/* a phone on its side: no room for the Almanac, so the store gets the whole column */
+@media (max-height: 560px) {
+  #info-win { display: none; }
+}
+/* a phone held upright: the farm needs it sideways */
+#rotate { display: none; }
+@media (orientation: portrait) and (max-width: 700px) {
+  #rotate { display: flex; position: fixed; inset: 0; z-index: 90; background: #fff; align-items: center; justify-content: center;
+    text-align: center; font: bold 16px Geneva, sans-serif; padding: 30px; }
+}
 #game.aiming { cursor: none; }
 
 #side { width: 262px; flex: none; display: flex; flex-direction: column; gap: 14px; align-self: stretch; min-height: 0; }
