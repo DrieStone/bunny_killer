@@ -1,11 +1,12 @@
 // Browser persistence: the current farm, the best run, and settings.
-import { SAVE_VERSION, type SaveData } from './game';
+import { migrateSave, type SaveData } from './game';
 
 const SAVE_KEY = 'bk4.save';
 const BEST_KEY = 'bk4.best';
 const SETTINGS_KEY = 'bk4.settings';
 const SCORES_KEY = 'bk4.scores';
 const CLASSIC_KEY = 'bk4.classicBest';
+const HARD_KEY = 'bk4.hardOpen';
 
 export interface Best {
   score: number; // lifetime harvest credits
@@ -15,6 +16,7 @@ export interface Best {
 export interface Settings {
   muted: boolean;
   musicMuted: boolean;
+  autoSkip: boolean; // skip to sundown by itself once the day's bunnies are dealt with
 }
 
 function read<T>(key: string): T | null {
@@ -35,8 +37,7 @@ function write(key: string, value: unknown): void {
 }
 
 export function loadSave(): SaveData | null {
-  const d = read<SaveData>(SAVE_KEY);
-  return d && d.v === SAVE_VERSION && Array.isArray(d.tiles) ? d : null;
+  return migrateSave(read<SaveData>(SAVE_KEY));
 }
 
 export const writeSave = (d: SaveData): void => write(SAVE_KEY, d);
@@ -59,7 +60,7 @@ export function recordBest(score: number, round: number): boolean {
   return true;
 }
 
-export const loadSettings = (): Settings => ({ muted: false, musicMuted: false, ...read<Settings>(SETTINGS_KEY) });
+export const loadSettings = (): Settings => ({ muted: false, musicMuted: false, autoSkip: false, ...read<Settings>(SETTINGS_KEY) });
 export const saveSettings = (s: Settings): void => write(SETTINGS_KEY, s);
 
 // ---------------------------------------------------------------- high scores
@@ -71,6 +72,8 @@ export interface ScoreEntry {
   bosses: number;
   date: string; // YYYY-MM-DD
   retired: boolean;
+  sealed?: boolean; // won: sealed the crater in `days` days
+  hard?: boolean; // played in Hard Mode
 }
 
 export function loadScores(): ScoreEntry[] {
@@ -82,11 +85,19 @@ export function loadScores(): ScoreEntry[] {
 export function addScore(entry: ScoreEntry): number {
   const list = loadScores();
   list.push(entry);
-  list.sort((a, b) => b.score - a.score || b.days - a.days);
+  // wins first (Hard Mode ahead), fastest on top; then everyone else by harvest
+  list.sort((a, b) => Number(!!b.sealed) - Number(!!a.sealed) ||
+    (a.sealed ? Number(!!b.hard) - Number(!!a.hard) || a.days - b.days : 0) || b.score - a.score || b.days - a.days);
   const top = list.slice(0, 10);
   write(SCORES_KEY, top);
   return top.indexOf(entry);
 }
+
+// ---------------------------------------------------------------- Hard Mode: open once you've sealed the crater
+
+/** Open if you've ever sealed the crater (wins from before Hard Mode existed count too). */
+export const hardModeOpen = (): boolean => read<boolean>(HARD_KEY) === true || loadScores().some((e) => e.sealed);
+export const openHardMode = (): void => write(HARD_KEY, true);
 
 // ---------------------------------------------------------------- Classic Mode best
 

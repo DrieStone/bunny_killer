@@ -11,6 +11,30 @@
   "w": 23,
   "h": 26
  },
+ "bunny_ninja_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_0": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_0": {
+  "w": 16,
+  "h": 18
+ },
  "bunny_common_1": {
   "w": 23,
   "h": 26
@@ -22,6 +46,30 @@
  "bunny_digger_1": {
   "w": 23,
   "h": 26
+ },
+ "bunny_ninja_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_1": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_1": {
+  "w": 16,
+  "h": 18
  },
  "bunny_common_2": {
   "w": 23,
@@ -35,6 +83,30 @@
   "w": 23,
   "h": 26
  },
+ "bunny_ninja_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_2": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_2": {
+  "w": 16,
+  "h": 18
+ },
  "bunny_common_3": {
   "w": 23,
   "h": 26
@@ -46,6 +118,30 @@
  "bunny_digger_3": {
   "w": 23,
   "h": 26
+ },
+ "bunny_ninja_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_3": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_3": {
+  "w": 16,
+  "h": 18
  },
  "bunny_common_4": {
   "w": 23,
@@ -59,6 +155,30 @@
   "w": 23,
   "h": 26
  },
+ "bunny_ninja_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_4": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_4": {
+  "w": 16,
+  "h": 18
+ },
  "bunny_common_5": {
   "w": 23,
   "h": 26
@@ -70,6 +190,30 @@
  "bunny_digger_5": {
   "w": 23,
   "h": 26
+ },
+ "bunny_ninja_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_5": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_5": {
+  "w": 16,
+  "h": 18
  },
  "bunny_common_6": {
   "w": 23,
@@ -83,6 +227,30 @@
   "w": 23,
   "h": 26
  },
+ "bunny_ninja_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_6": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_6": {
+  "w": 16,
+  "h": 18
+ },
  "bunny_common_7": {
   "w": 23,
   "h": 26
@@ -95,7 +263,35 @@
   "w": 23,
   "h": 26
  },
+ "bunny_ninja_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_pothead_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_leaper_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_bandit_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_snow_7": {
+  "w": 23,
+  "h": 26
+ },
+ "bunny_kit_7": {
+  "w": 16,
+  "h": 18
+ },
  "bunny_fat": {
+  "w": 36,
+  "h": 33
+ },
+ "bunny_queen": {
   "w": 36,
   "h": 33
  },
@@ -203,10 +399,6 @@
   "w": 34,
   "h": 46
  },
- "def_sprinkler": {
-  "w": 26,
-  "h": 21
- },
  "def_turret": {
   "w": 34,
   "h": 41
@@ -214,14 +406,6 @@
  "def_doghouse": {
   "w": 44,
   "h": 37
- },
- "def_trap_open": {
-  "w": 30,
-  "h": 23
- },
- "def_trap_shut": {
-  "w": 30,
-  "h": 23
  },
  "sc_farmhouse": {
   "w": 82,

@@ -181,13 +181,94 @@ export class Sfx {
       case 'click':
         if (this.ready(name, 0.02)) this.tone(1800, 0.015, 'square', 0.05);
         break;
+      case 'whoosh':
+        if (this.ready(name, 0.06)) this.noise(0.16, 0.22, 'bandpass', 2600, 500);
+        break;
+      case 'squeak':
+        if (this.ready(name, 0.2)) {
+          this.noise(0.1, 0.15, 'lowpass', 600);
+          this.tone(1500, 0.05, 'square', 0.05, 2100, 0.05);
+        }
+        break;
+      case 'rumble':
+        if (this.ready(name, 0.5)) {
+          this.noise(1.1, 0.4, 'lowpass', 220, 50);
+          this.tone(92, 0.9, 'sawtooth', 0.1, 46, 0.05);
+        }
+        break;
+      case 'pew':
+        if (this.ready(name, 0.04)) this.tone(1300, 0.04, 'square', 0.05, 700);
+        break;
+      case 'thoomp':
+        if (this.ready(name, 0.1)) {
+          this.noise(0.12, 0.3, 'lowpass', 400, 120);
+          this.tone(140, 0.12, 'sine', 0.3, 70);
+        }
+        break;
+      case 'launch':
+        if (this.ready(name, 0.2)) this.noise(0.5, 0.2, 'bandpass', 900, 3500);
+        break;
+      case 'splat':
+        if (this.ready(name, 0.06)) this.noise(0.14, 0.3, 'lowpass', 900, 200);
+        break;
+      case 'boom':
+        if (this.ready(name, 0.1)) {
+          this.noise(0.8, 0.5, 'lowpass', 600, 60);
+          this.tone(70, 0.5, 'sine', 0.4, 35);
+          for (let i = 0; i < 5; i++) this.noise(0.04, 0.12, 'highpass', 3000, undefined, 0.15 + i * 0.07 + Math.random() * 0.05);
+        }
+        break;
+      case 'clang':
+        if (this.ready(name, 0.05)) {
+          this.tone(1560, 0.25, 'square', 0.06);
+          this.tone(2340, 0.18, 'triangle', 0.05);
+        }
+        break;
+      case 'boing':
+        if (this.ready(name, 0.1)) this.tone(300, 0.3, 'triangle', 0.15, 900);
+        break;
+      case 'thud':
+        if (this.ready(name, 0.15)) {
+          this.tone(90, 0.2, 'sine', 0.35, 45);
+          this.noise(0.15, 0.2, 'lowpass', 300);
+        }
+        break;
+      case 'buzz':
+        if (this.ready(name, 0.12)) this.tone(210, 0.18, 'sawtooth', 0.05, 240);
+        break;
+      case 'yoink':
+        if (this.ready(name, 0.2)) this.tone(500, 0.3, 'triangle', 0.15, 1400);
+        break;
+      case 'zap':
+        if (this.ready(name, 0.1)) this.noise(0.08, 0.15, 'highpass', 2500);
+        break;
+      case 'hose':
+        if (this.ready(name, 0.12)) this.noise(0.16, 0.1, 'bandpass', 2400);
+        break;
     }
   }
 
   handle(events: GameEvent[]): void {
     for (const e of events) {
       switch (e.t) {
-        case 'sling': this.play('sling'); if (!e.hit) this.play('miss'); break;
+        case 'fire':
+          if (e.weapon === 'sling') {
+            this.play('sling');
+            if (!e.hit) this.play('miss');
+          } else if (e.weapon === 'pellet') this.play('pew');
+          else if (e.weapon === 'spud') this.play('thoomp');
+          else this.play('launch');
+          break;
+        case 'blast': this.play(e.weapon === 'spud' ? 'splat' : 'boom'); break;
+        case 'clang': this.play('clang'); break;
+        case 'potOff': this.play('boing'); break;
+        case 'thunk': this.play('dig'); break;
+        case 'thump': this.play('thud'); break;
+        case 'sting': this.play('buzz'); break;
+        case 'steal': this.play('yoink'); break;
+        case 'drop': this.play('coin'); break;
+        case 'zap': this.play('zap'); break;
+        case 'weapon': this.play('click'); break;
         case 'hit': this.play('hit'); break;
         case 'poof': this.play(e.kind === 'mutant' ? 'bigpoof' : 'poof'); break;
         case 'snap': this.play('snap'); break;
@@ -206,6 +287,10 @@ export class Sfx {
         case 'error': this.play('error'); break;
         case 'dig': this.play('dig'); break;
         case 'roundStart': this.play('dawn'); break;
+        case 'dodge': this.play('whoosh'); break;
+        case 'brood': this.play('squeak'); break;
+        case 'project': this.play('rumble'); break;
+        case 'smoke': this.play('boom'); this.play('rumble'); break;
         case 'sundown': this.play('dusk'); break;
         default: break;
       }

@@ -8,11 +8,11 @@ await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 await page.click('.dialog button:has-text("New Game")');
 const box = await page.locator('#game').boundingBox();
-const scr = (tx, ty) => ({ x: box.x + ((tx + 0.5) / 28) * box.width, y: box.y + ((ty + 0.5) / 18) * box.height });
+const scr = (tx, ty) => ({ x: box.x + ((tx + 0.5) / 22) * box.width, y: box.y + ((ty + 0.5) / 16) * box.height });
 await page.evaluate(() => {
   const { game } = window.bk4;
   game.credits = 500;
-  const at = (x, y) => y * 28 + x;
+  const at = (x, y) => y * 22 + x;
   for (let x = 11; x <= 16; x++) game.place({ type: 'crop', kind: 'carrot' }, at(x, 9));
   game.place({ type: 'defense', kind: 'sprinkler' }, at(12, 7));
   game.place({ type: 'defense', kind: 'turret' }, at(15, 7));
@@ -39,7 +39,7 @@ for (let k = 0; k < 200 && !snapped; k++) {
     return b ? { x: b.x, y: b.y - 0.3 } : null;
   });
   if (t) {
-    const q = { x: box.x + (t.x / 28) * box.width, y: box.y + (t.y / 18) * box.height };
+    const q = { x: box.x + (t.x / 22) * box.width, y: box.y + (t.y / 16) * box.height };
     await page.mouse.click(q.x, q.y);
     await page.waitForTimeout(90);
     await page.screenshot({ path: 'shots/fx-poof.png', clip: { x: q.x - 150, y: q.y - 110, width: 300, height: 200 } });

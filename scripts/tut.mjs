@@ -12,7 +12,7 @@ await page.screenshot({ path: 'shots/tut-0.png' });
 // plant one carrot -> step 1
 const box = await page.locator('#game').boundingBox();
 await page.keyboard.press('3');
-await page.mouse.click(box.x + (12.5 / 28) * box.width, box.y + (8.5 / 18) * box.height);
+await page.mouse.click(box.x + (12.5 / 22) * box.width, box.y + (8.5 / 16) * box.height);
 await page.waitForTimeout(400);
 await page.screenshot({ path: 'shots/tut-1.png' });
 // help mode balloon over the Scarecrow item

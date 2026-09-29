@@ -27,6 +27,7 @@
           <div class="mi" data-action="speed"><span id="mi-speed">Fast Forward</span><span class="key">F</span></div>
           <div class="mi" data-action="mute"><span id="mi-mute">Sound Off</span><span class="key">M</span></div>
           <div class="mi" data-action="music"><span id="mi-music">Music Off</span><span class="key">N</span></div>
+          <div class="mi" data-action="autoskip" id="mi-autoskip"><span>Always Skip When All Clear</span></div>
         </div>
       </div>
       <div class="mb" data-menu="help">
@@ -48,6 +49,14 @@
           <canvas id="game"></canvas>
           <div id="banner"></div>
           <div id="toast"></div>
+          <div id="all-clear" class="alert" hidden>
+            <div class="inner">
+              <h1>All clear!</h1>
+              <p id="ac-text"></p>
+              <label class="check"><input type="checkbox" id="ac-always"> Always skip when it's all clear</label>
+              <div class="buttons"><button class="btn" id="ac-stay">Keep Watching</button><button class="btn default" id="ac-skip">Skip to Sundown ▸▸</button></div>
+            </div>
+          </div>
         </div>
       </div>
       <div id="side">

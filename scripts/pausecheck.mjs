@@ -14,7 +14,7 @@ const menu = async (m, action) => {
 };
 const out = {};
 // farm: pause -> Help -> OK
-await page.evaluate(() => { const { game, hooks } = window.bk4; hooks.newGame(); game.place({ type: 'crop', kind: 'carrot' }, 8 * 28 + 13); hooks.startDay(); });
+await page.evaluate(() => { const { game, hooks } = window.bk4; hooks.newGame(); game.place({ type: 'crop', kind: 'carrot' }, 6 * 22 + 10); hooks.startDay(); });
 await page.keyboard.press('p');
 out.farmPaused = await state();
 await menu('help', 'help');

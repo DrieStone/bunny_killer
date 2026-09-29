@@ -2,7 +2,7 @@
 import { chromium } from 'playwright-core';
 
 const browser = await chromium.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: true });
-const page = await browser.newPage({ viewport: { width: 1440, height: 860 }, deviceScaleFactor: 1 });
+const page = await browser.newPage({ viewport: { width: 1440, height: 860 }, deviceScaleFactor: 2 });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -14,19 +14,19 @@ await wait(1200);
 await page.screenshot({ path: 'shots/tour-1-title.png' });
 
 const box = await page.locator('#game').boundingBox();
-const scr = (tx, ty) => ({ x: box.x + ((tx + 0.5) / 28) * box.width, y: box.y + ((ty + 0.5) / 18) * box.height });
+const scr = (tx, ty) => ({ x: box.x + ((tx + 0.5) / 22) * box.width, y: box.y + ((ty + 0.5) / 16) * box.height });
 
 // --- planning: a small farm going in, scarecrow in hand
 await page.click('.dialog button:has-text("New Game")');
 await page.evaluate(() => {
   const { game } = window.bk4;
-  const at = (x, y) => y * 28 + x;
+  const at = (x, y) => y * 22 + x;
   for (let x = 11; x <= 13; x++) game.place({ type: "crop", kind: "carrot" }, at(x, 8));
-  game.place({ type: 'crop', kind: 'lettuce' }, at(11, 10));
-  game.place({ type: 'defense', kind: 'trap' }, at(12, 10));
+  game.place({ type: 'crop', kind: 'lettuce' }, at(11, 9));
+  game.place({ type: 'defense', kind: 'trap' }, at(12, 9));
 });
 await page.keyboard.press('e');
-let p = scr(14, 10);
+let p = scr(12, 7);
 await page.mouse.move(p.x, p.y);
 await wait(1900);
 await page.screenshot({ path: 'shots/tour-2-plan.png' });
@@ -35,10 +35,10 @@ await page.keyboard.press('Escape');
 // --- day 3: a defended field mid-afternoon, sling in action
 await page.evaluate(() => {
   const { game, hooks } = window.bk4;
-  game.round = 3; game.credits = 600; game.plotLevel = 1;
+  game.round = 3; game.credits = 600; game.lots = game.lots.map((_, n) => (n % 8) >= 2 && (n % 8) <= 5); for (const i of game.ownedTiles()) game.tilled[i] = 1;
   game.loadSave(game.toSave());
   const r = game.plot;
-  const at = (x, y) => y * 28 + x;
+  const at = (x, y) => y * 22 + x;
   const crops = ['carrot', 'lettuce', 'carrot', 'radish', 'pumpkin'];
   for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
     if (y === r.y0 + 1 && x >= r.x0 + 1 && x <= r.x0 + 4) game.place({ type: 'defense', kind: 'fence' }, at(x, y));
@@ -52,18 +52,18 @@ await page.evaluate(() => {
   window.bk4.step(21);
   game.events.length = 0;
 });
-p = scr(9, 12);
+p = scr(7, 10);
 await page.mouse.move(p.x, p.y);
 await wait(1600);
 // click the nearest visible bunny and catch the poof
 for (let k = 0; k < 60; k++) {
   const t = await page.evaluate(() => {
     const g = window.bk4.game;
-    const b = g.bunnies.find((b) => g.isSurfaced(b) && b.state !== 'exit' && b.x > 6 && b.x < 22 && b.y > 3 && b.y < 15);
+    const b = g.bunnies.find((b) => g.isSurfaced(b) && b.state !== 'exit' && b.x > 3 && b.x < 19 && b.y > 2 && b.y < 12);
     return b ? { x: b.x, y: b.y - 0.3 } : null;
   });
   if (t) {
-    await page.mouse.click(box.x + (t.x / 28) * box.width, box.y + (t.y / 18) * box.height);
+    await page.mouse.click(box.x + (t.x / 22) * box.width, box.y + (t.y / 16) * box.height);
     await wait(110);
     break;
   }
@@ -75,11 +75,11 @@ await page.screenshot({ path: 'shots/tour-3-day.png' });
 await page.evaluate(() => {
   const { game, hooks } = window.bk4;
   game.phase = 'planning';
-  game.round = 5; game.credits = 3000; game.plotLevel = 1;
+  game.round = 5; game.credits = 3000; game.lots = game.lots.map((_, n) => (n % 8) >= 2 && (n % 8) <= 5); for (const i of game.ownedTiles()) game.tilled[i] = 1;
   game.loadSave(game.toSave());
   for (let i = 0; i < game.tiles.length; i++) { game.tiles[i].crop = null; game.tiles[i].structure = null; }
   const r = game.plot;
-  const at = (x, y) => y * 28 + x;
+  const at = (x, y) => y * 22 + x;
   const crops = ['carrot', 'lettuce', 'pumpkin', 'carrot', 'corn', 'radish'];
   for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
     if (y === r.y0 && x < r.x0 + 5) game.place({ type: 'defense', kind: 'fence' }, at(x, y));

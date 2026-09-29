@@ -1,7 +1,7 @@
 // Short-lived visual effects. Positions are in world pixels.
 import { drawText, OUTLINE, textWidth } from './pixels';
 
-type Kind = 'dot' | 'text' | 'ring' | 'streak' | 'puff' | 'crow' | 'sparkle';
+type Kind = 'dot' | 'text' | 'ring' | 'streak' | 'puff' | 'crow' | 'sparkle' | 'splash';
 
 interface Particle {
   kind: Kind;
@@ -119,6 +119,17 @@ export class Particles {
         case 'streak':
           pixelLine(ctx, p.x, p.y, p.x2 ?? p.x, p.y2 ?? p.y, p.size);
           break;
+        case 'splash': {
+          // a raindrop landing: a tiny ring that widens
+          const r = t > 0.5 ? 1 : 2;
+          const x = Math.round(p.x);
+          const y = Math.round(p.y);
+          ctx.fillRect(x - r - 1, y, 1, 1);
+          ctx.fillRect(x + r + 1, y, 1, 1);
+          ctx.fillRect(x - r, y - 1, r * 2 + 1, 1);
+          if (t > 0.5) ctx.fillRect(x, y - 3, 1, 2);
+          break;
+        }
         case 'sparkle': {
           const s = t > 0.5 ? 2 : 1;
           ctx.fillRect(Math.round(p.x) - s, Math.round(p.y), s * 2 + 1, 1);
@@ -146,8 +157,8 @@ export class Particles {
           break;
         }
         case 'text': {
-          const w = textWidth(p.text ?? '', 2);
-          drawText(ctx, p.text ?? '', Math.round(p.x - w / 2), Math.round(p.y), p.color, OUTLINE, 2, 1);
+          const w = textWidth(p.text ?? '');
+          drawText(ctx, p.text ?? '', Math.round(p.x - w / 2), Math.round(p.y), p.color, OUTLINE);
           break;
         }
       }

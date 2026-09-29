@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { CROPS, DEFENSES } from '../src/config';
+import { CROPS, DEFENSES, ROWS } from '../src/config';
 import { Game } from '../src/game';
 import { PathField } from '../src/path';
 import { idx, N, tileX, tileY } from '../src/world';
-import { botPlan, playDay, plotTiles } from './helpers';
+import { botPlan, playDay, plotTiles, unlockAll } from './helpers';
 
 describe('pathfinding', () => {
   it('routes around a wall when it can and through it when it must', () => {
@@ -19,7 +19,7 @@ describe('pathfinding', () => {
     expect(path.at(-1)).toBe(target);
     expect(path.some((i) => g.tiles[i].structure)).toBe(false);
     // close the gap and fence the whole column: must chew
-    for (let y = 0; y < 18; y++) g.tiles[idx(14, y)].structure = { kind: 'fence', level: 1, hp: DEFENSES.fence.hp, fresh: false, cd: 0, anim: 0, shake: 0 };
+    for (let y = 0; y < ROWS; y++) g.tiles[idx(14, y)].structure = { kind: 'fence', level: 1, hp: DEFENSES.fence.hp, fresh: false, cd: 0, anim: 0, shake: 0 };
     g.rebuildCosts();
     const f2 = new PathField().run(a, g.costWalk, g.solidWalk);
     expect(f2.pathTo(target).some((i) => g.tiles[i].structure)).toBe(true);
@@ -30,6 +30,7 @@ describe('economy', () => {
   it('refunds fresh purchases in full and used defenses at half', () => {
     const g = new Game();
     g.newGame(5);
+    unlockAll(g);
     const i = plotTiles(g)[0];
     const before = g.credits;
     g.place({ type: 'defense', kind: 'scarecrow' }, i);
@@ -54,6 +55,7 @@ describe('economy', () => {
   it('pays for mature crops, scaled by damage, and keeps unripe ones', () => {
     const g = new Game();
     g.newGame(9);
+    unlockAll(g);
     g.wave = [];
     const [a, b, c] = plotTiles(g);
     g.place({ type: 'crop', kind: 'carrot' }, a);
@@ -70,6 +72,7 @@ describe('economy', () => {
   it('round-trips a save', () => {
     const g = new Game();
     g.newGame(77);
+    unlockAll(g);
     const tiles = plotTiles(g);
     g.place({ type: 'crop', kind: 'corn' }, tiles[0]);
     g.place({ type: 'defense', kind: 'doghouse' }, tiles[5]);
@@ -132,7 +135,7 @@ describe('a day on the farm', () => {
       botPlan(g);
       playDay(g, 0.55, 0.75);
       const rs = g.roundStats;
-      expect(rs.kills + rs.escapedFed + rs.escapedHungry).toBe(g.wave.length);
+      expect(rs.kills + rs.escapedFed + rs.escapedHungry).toBe(g.waveTotal());
       g.continueAfterSummary();
     }
     expect(g.round).toBeGreaterThan(3);

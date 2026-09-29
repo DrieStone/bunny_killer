@@ -10,11 +10,11 @@ for (const [name, round, weather] of scenes) {
   await page.evaluate(({ round, weather }) => {
     const { game, hooks } = window.bk4;
     hooks.newGame();
-    game.round = round; game.credits = 3000; game.plotLevel = 1;
+    game.round = round; game.credits = 3000; game.lots = game.lots.map((_, n) => (n % 8) >= 2 && (n % 8) <= 5); for (const i of game.ownedTiles()) game.tilled[i] = 1;
     game.loadSave(game.toSave());
     game.weather = weather;
     const r = game.plot;
-    const at = (x, y) => y * 28 + x;
+    const at = (x, y) => y * 22 + x;
     const crops = ['carrot', 'lettuce', 'pumpkin', 'strawberry', 'corn', 'radish'];
     for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
       if (y === r.y0 && x < r.x0 + 5) game.place({ type: 'defense', kind: 'fence' }, at(x, y));

@@ -1,20 +1,23 @@
 // The System 7 chrome around the farm: menubar, Farm Store, Almanac, and dialogs.
 import {
-  BREED_CAP, BUNNIES, BUNNY_ORDER, CROP_ORDER, CROPS, DEFENSE_ORDER, DEFENSES, defenseStats, MAX_LEVEL, PLOT_LEVELS,
-  ROUND_SECONDS, SEASONS, SLING_LEVELS, upgradeCost, WEATHER, yearOf,
+  ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, CROP_ORDER, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
+  defenseStats, FARM, FARM_ORDER, type FarmUpgrade, firstRound, fruitsPerDay, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost,
+  lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
+  unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
 } from '../config';
 import type { Game } from '../game';
-import { dataURL, iconURL, menuBunny, spriteImg } from '../render/icons';
+import { dataURL, farmIcon, iconURL, menuBunny, repairIcon, spriteImg, weaponIcon } from '../render/icons';
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
 import type { ScoreEntry } from '../save';
 import type { ShopItem } from '../types';
 import type { DefenseKind } from '../config';
-import { tileX, tileY } from '../world';
+import { idx, inCrater, lotOfTile, tileX, tileY } from '../world';
 
 export interface UiHooks {
-  newGame(): void;
+  newGame(mode?: Mode): void;
+  hardOpen(): boolean; // Hard Mode opens once you've sealed the crater
   continueGame(): void;
   toTitle(): void;
   startDay(): void;
@@ -22,6 +25,8 @@ export interface UiHooks {
   togglePause(): void;
   toggleSpeed(): void;
   skipDay(): void;
+  autoSkip(): boolean; // skip by itself whenever it's all clear
+  setAutoSkip(on: boolean): void;
   toggleMute(): void;
   toggleMusic(): void;
   musicMuted(): boolean;
@@ -42,24 +47,41 @@ export interface UiHooks {
   replayTutorial(): void;
 }
 
+/** Planning hotkeys: seeds on 1-9 and 0, defenses on Q W E R T Y and A S D, then the two tools. */
 export const HOTKEYS: Record<string, ShopItem> = {
-  '1': { type: 'crop', kind: 'radish' },
-  '2': { type: 'crop', kind: 'lettuce' },
-  '3': { type: 'crop', kind: 'carrot' },
-  '4': { type: 'crop', kind: 'corn' },
-  '5': { type: 'crop', kind: 'strawberry' },
-  '6': { type: 'crop', kind: 'pumpkin' },
-  q: { type: 'defense', kind: 'fence' },
-  w: { type: 'defense', kind: 'trap' },
-  e: { type: 'defense', kind: 'scarecrow' },
-  r: { type: 'defense', kind: 'sprinkler' },
-  t: { type: 'defense', kind: 'turret' },
-  y: { type: 'defense', kind: 'doghouse' },
+  ...Object.fromEntries(CROP_ORDER.map((kind, n) => ['1234567890'[n], { type: 'crop', kind }])),
+  ...Object.fromEntries(DEFENSE_ORDER.map((kind, n) => ['qwertyasd'[n], { type: 'defense', kind }])),
   x: { type: 'remove' },
   u: { type: 'upgrade' },
+  h: { type: 'till' },
+  l: { type: 'land' },
+  b: { type: 'smoke' },
 };
 
-const keyOf = (item: ShopItem) => (item.type === 'remove' || item.type === 'upgrade' ? item.type : `${item.type}:${item.kind}`);
+const isTool = (item: ShopItem): item is Extract<ShopItem, { type: 'remove' | 'upgrade' | 'till' | 'land' | 'smoke' }> =>
+  item.type === 'remove' || item.type === 'upgrade' || item.type === 'till' || item.type === 'land' || item.type === 'smoke';
+const TOOL_NAMES = { remove: 'Dig / Sell', upgrade: 'Upgrade', till: 'Hoe', land: 'Buy Land', smoke: 'Smoke Bomb' };
+
+type Tab = 'seeds' | 'defense' | 'weapons' | 'lab' | 'farm';
+const TABS: [Tab, string][] = [['seeds', 'Seeds'], ['defense', 'Defense'], ['weapons', 'Weapons'], ['lab', 'Lab'], ['farm', 'Farm']];
+
+/** "★★★☆☆" */
+const stars = (level: number, max: number) => '★'.repeat(level) + '☆'.repeat(Math.max(0, max - level));
+
+/** What a weapon does at a level, in a line. */
+function weaponLine(kind: WeaponKind, level: number): string {
+  const st = weaponStats(kind, Math.max(1, level));
+  const bits: string[] = [];
+  if (kind === 'hose') bits.push(`Spray ${st.radius.toFixed(1)}`, st.damage ? `${st.damage}/s` : 'no damage');
+  else {
+    bits.push(`Reload ${st.reload.toFixed(2).replace(/0$/, '')}s`, `Dmg ${st.damage}`);
+    if (WEAPONS[kind].splash) bits.push(`Splash ${st.radius.toFixed(1)}`);
+    if (st.spread) bits.push(`Spread ${st.spread.toFixed(2)}`);
+  }
+  return bits.join(' · ');
+}
+
+const keyOf = (item: ShopItem) => (isTool(item) ? item.type : `${item.type}:${item.kind}`);
 const hotkeyOf = (item: ShopItem) => Object.entries(HOTKEYS).find(([, v]) => keyOf(v) === keyOf(item))?.[0] ?? '';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -69,34 +91,61 @@ function statLine(kind: DefenseKind, level: number): string {
   const d = DEFENSES[kind];
   const st = defenseStats(kind, level);
   const bits: string[] = [];
-  if (st.radius >= 1) bits.push(`Range ${st.radius.toFixed(1).replace(/\.0$/, '')}`);
+  if (st.radius >= 1) bits.push(`${kind === 'decoy' ? 'Pulls from' : 'Range'} ${st.radius.toFixed(1).replace(/\.0$/, '')}`);
   if (st.period > 0 && kind !== 'fence') bits.push(kind === 'trap' ? `Re-arms ${st.period.toFixed(1)}s` : `Every ${st.period.toFixed(1)}s`);
   if (st.damage > 0) bits.push(`Damage ${st.damage}`);
   if (d.blocks) bits.push(`Sturdiness ${st.hp}`);
+  if (kind === 'decoy') bits.push(`Lasts ${st.hp} bites`);
+  if (st.shock > 0) bits.push(`Zaps ${st.shock}/s`);
   return bits.join(' · ');
 }
 
 const WEATHER_ICON: Record<string, string> = { sunny: '☀︎', rain: '☂︎', fog: '≋', snow: '❄︎' };
 
+const plural = (name: string) => (name.endsWith('y') && !name.endsWith('ey') ? `${name.slice(0, -1)}ies` : `${name}s`);
+
 const APPEAL = (a: number) => (a >= 2 ? 'irresistible' : a >= 1.3 ? 'loves it' : a >= 0.8 ? 'likes it' : 'meh');
+
+const unlockOf = (item: ShopItem): Unlock | null =>
+  item.type === 'crop' || item.type === 'defense' ? item.kind : item.type === 'upgrade' ? 'upgrade2'
+    : item.type === 'land' || item.type === 'smoke' ? item.type : null;
+
+/** A goal short enough for a store shelf: "Day 3", "50 bonks", "Earn 1,000¢", "Beat a Buck". */
+function goalShort(what: Unlock): string {
+  const r = UNLOCK_RULE[what];
+  if (!r) return '';
+  switch (r.goal) {
+    case 'day': return `Day ${r.n}`;
+    case 'bonks': return `${r.n} bonks`;
+    case 'harvest': return `Earn ${r.n.toLocaleString('en-US')}¢`;
+    case 'bucks': return r.n === 1 ? 'Beat a Buck' : `Beat ${r.n} Bucks`;
+  }
+}
+
+const money = (n: number) => `${Math.round(n).toLocaleString('en-US')}¢`;
 
 export class UI {
   selected: ShopItem | null = null;
   classic: Classic | null = null;
-  previewExpand = false;
   hoverTile = -1;
   private hoverItem: ShopItem | null = null;
   private hoverButton: string | null = null;
   private memo = new Map<string, string>();
   private itemEls = new Map<string, HTMLElement>();
+  private items = new Map<string, ShopItem>();
+  private tab: Tab = 'seeds';
+  private hoverRow: string | null = null; // a weapon, lab or farm row under the mouse
   private bannerTimer = 0;
   private toastTimer = 0;
   private modal: string | null = null;
   private onModalKey: ((key: string) => boolean) | null = null;
+  private clearShown = false; // the all-clear box is up
+  private clearDismissed = false; // "Keep Watching": not again today
 
   constructor(private game: Game, private hooks: UiHooks) {
     this.buildMenubar();
     this.buildStore();
+    this.buildAllClear();
   }
 
   get modalOpen(): string | null {
@@ -158,6 +207,7 @@ export class UI {
       case 'scores': this.showHighScores(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'retire': this.confirmRetire(); break;
       case 'tutorial': this.hooks.replayTutorial(); break;
+      case 'autoskip': this.hooks.setAutoSkip(!this.hooks.autoSkip()); break;
     }
   }
 
@@ -169,18 +219,19 @@ export class UI {
     store.innerHTML = `
       <div id="plan-panel" class="panel">
         <div class="money"><span class="credits" id="credits"></span><span class="day" id="day-label"></span></div>
-        <div class="scroll">
+        <button class="btn crater" id="btn-project"></button>
         <div class="group scout"><span class="legend">Scouting Report</span><div id="scout"></div></div>
-        <div class="group"><span class="legend">Seeds</span><div class="items" id="seed-items"></div></div>
-        <div class="group"><span class="legend">Defenses</span><div class="items" id="def-items"></div></div>
-        <div class="group"><span class="legend">Farm</span>
-          <div class="items" id="tool-items"></div>
-          <div class="row" style="margin-top:6px">
-            <button class="btn" id="btn-expand"></button>
-            <button class="btn" id="btn-sling"></button>
-            <button class="btn" id="btn-repair"></button>
+        <div class="tabs" id="store-tabs">${TABS.map(([t, label]) => `<button class="tab" data-tab="${t}">${label}<i></i></button>`).join('')}</div>
+        <div class="scroll tabbox">
+          <div class="page" data-page="seeds"><div class="items" id="seed-items"></div><div class="items tools" id="seed-tools"></div></div>
+          <div class="page" data-page="defense"><div class="items" id="def-items"></div><div class="items tools" id="tool-items"></div></div>
+          <div class="page" data-page="weapons"><div id="weapon-rows"></div>
+            <p class="hint">During the day, <span class="kbd">1</span>–<span class="kbd">5</span> or the mouse wheel switch weapons.</p></div>
+          <div class="page" data-page="lab"><p class="note" id="lab-note"></p><div class="items" id="lab-items"></div></div>
+          <div class="page" data-page="farm">
+            <div class="items tools first" id="farm-tools"></div>
+            <div id="farm-rows"></div>
           </div>
-        </div>
         </div>
         <div class="start"><button class="btn default" id="btn-start">Start the Day ▸</button></div>
       </div>
@@ -205,8 +256,9 @@ export class UI {
       </div>
       <div id="day-panel" class="panel" hidden>
         <div class="money"><span class="credits" id="credits2"></span><span class="day" id="day-label2"></span></div>
-        <div style="margin-top:8px"><b>Daylight</b></div>
+        <div style="margin-top:8px"><b id="sun-label">Daylight</b></div>
         <div class="progress sun"><div id="sunbar"></div></div>
+        <div class="weapon-bar" id="weapon-bar"></div>
         <div class="stats">
           <span>Bunnies on the way</span><span class="v" id="st-coming"></span>
           <span>Bunnies in the field</span><span class="v" id="st-field"></span>
@@ -221,37 +273,75 @@ export class UI {
         <div class="row" style="margin-top:8px" id="skip-row" hidden>
           <button class="btn" id="btn-skip">All clear! Skip to sundown ▸▸</button>
         </div>
-        <p class="hint">Click a bunny to hit it with your sling.<br>
-          <span class="kbd">P</span> pause &nbsp; <span class="kbd">F</span> fast-forward &nbsp; <span class="kbd">M</span> sound</p>
+        <p class="hint">Click a bunny to fire. Hit a dirt mound to startle a Burrower out.<br>
+          <span class="kbd">1</span>–<span class="kbd">5</span> weapons &nbsp; <span class="kbd">P</span> pause &nbsp; <span class="kbd">F</span> speed &nbsp; <span class="kbd">M</span> sound</p>
       </div>`;
     const addItems = (host: HTMLElement, items: ShopItem[]) => {
       for (const item of items) {
         const el = document.createElement('div');
         el.className = 'item';
-        const tool = item.type === 'remove' || item.type === 'upgrade';
-        const name = item.type === 'crop' ? CROPS[item.kind].name
-          : item.type === 'defense' ? DEFENSES[item.kind].name : item.type === 'remove' ? 'Dig / Sell' : 'Upgrade';
-        const icon = iconURL(tool ? item.type : item.kind);
+        const name = item.type === 'crop' ? CROPS[item.kind].name : item.type === 'defense' ? DEFENSES[item.kind].name : TOOL_NAMES[item.type];
+        const icon = iconURL(isTool(item) ? item.type : item.kind);
         const price = item.type === 'remove' ? 'refunds' : item.type === 'upgrade' ? 'defenses' : `${g.itemCost(item)}¢`;
         el.innerHTML = `<img src="${icon}" alt=""><span class="name">${name}</span>` +
-          `<span class="cost">${price}</span><span class="hot">${hotkeyOf(item).toUpperCase()}</span>`;
+          `<span class="cost">${price}</span><span class="hot">${hotkeyOf(item).toUpperCase()}</span><span class="badge">NEW</span>` +
+          (item.type === 'crop' ? '<span class="days"></span>' : '');
         el.dataset.balloon = item.type === 'crop' ? `<b>${name}.</b> ${CROPS[item.kind].blurb}`
           : item.type === 'defense' ? `<b>${name}.</b> ${DEFENSES[item.kind].blurb}`
-          : item.type === 'remove' ? '<b>Dig / Sell.</b> Click something on your plot to dig it up or sell it.'
-          : '<b>Upgrade.</b> Click a defense to make it better, up to three stars.';
+          : item.type === 'remove' ? '<b>Dig / Sell.</b> Click something on your land to dig it up or sell it.'
+          : item.type === 'till' ? '<b>Hoe.</b> Till your grass into a seedbed. Crops only grow in tilled soil. Drag to till a row.'
+          : item.type === 'land' ? '<b>Buy Land.</b> Click a lot for sale to buy it, or drag across several. It comes as grass: till it to plant, or build on it.'
+          : item.type === 'smoke' ? '<b>Smoke Bomb.</b> Throw it into the crater and an Asteroid Buck comes out today. Beat it to move the Crater Project along sooner.'
+          : `<b>Upgrade.</b> Click a defense to make it better, up to ${MAX_LEVEL} stars.`;
         el.addEventListener('click', () => {
           this.hooks.unlockAudio();
-          this.select(this.selected && keyOf(this.selected) === keyOf(item) ? null : item);
+          this.pick(item);
         });
         el.addEventListener('mouseenter', () => { this.hoverItem = item; });
         el.addEventListener('mouseleave', () => { this.hoverItem = null; });
         host.appendChild(el);
         this.itemEls.set(keyOf(item), el);
+        this.items.set(keyOf(item), item);
       }
     };
     addItems($('seed-items'), CROP_ORDER.map((kind) => ({ type: 'crop', kind })));
     addItems($('def-items'), DEFENSE_ORDER.map((kind) => ({ type: 'defense', kind })));
     addItems($('tool-items'), [{ type: 'remove' }, { type: 'upgrade' }]);
+    // Repair All sits with the other defense tools, but it works right away: nothing to click on the field
+    const repair = document.createElement('div');
+    repair.className = 'item';
+    repair.id = 'repair-cell';
+    repair.innerHTML = `<img src="${dataURL(repairIcon())}" alt=""><span class="name">Repair All</span><span class="cost"></span>`;
+    repair.dataset.balloon = '<b>Repair All.</b> Patch up every chewed defense at once.';
+    repair.addEventListener('click', () => {
+      this.hooks.unlockAudio();
+      if (g.repairAll()) this.hooks.changed();
+    });
+    repair.addEventListener('mouseenter', () => { this.hoverButton = 'repair'; });
+    repair.addEventListener('mouseleave', () => { this.hoverButton = null; });
+    $('tool-items').appendChild(repair);
+    addItems($('seed-tools'), [{ type: 'till' }]);
+    addItems($('farm-tools'), [{ type: 'land' }, { type: 'smoke' }]);
+    this.buildShopRows();
+    WEAPON_ORDER.forEach((k, n) => {
+      const b = document.createElement('button');
+      b.className = 'wpn';
+      b.dataset.weapon = k;
+      b.innerHTML = `<img src="${dataURL(weaponIcon(k))}" alt=""><span class="key">${n + 1}</span><span class="cd"></span>`;
+      b.dataset.balloon = `<b>${WEAPONS[k].name}.</b> ${WEAPONS[k].blurb}`;
+      b.addEventListener('click', () => {
+        this.hooks.unlockAudio();
+        this.game.selectWeapon(k);
+      });
+      b.addEventListener('mouseenter', () => { this.hoverRow = `weapon:${k}`; });
+      b.addEventListener('mouseleave', () => { this.hoverRow = null; });
+      $('weapon-bar').appendChild(b);
+    });
+    $('store-tabs').addEventListener('click', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('.tab')?.dataset.tab as Tab | undefined;
+      if (t) this.showTab(t);
+    });
+    this.showTab('seeds');
 
     const button = (id: string, fn: () => void, hoverKey: string) => {
       const b = $<HTMLButtonElement>(id);
@@ -261,49 +351,207 @@ export class UI {
       });
       b.addEventListener('mouseenter', () => {
         this.hoverButton = hoverKey;
-        if (hoverKey === 'expand') this.previewExpand = true;
       });
       b.addEventListener('mouseleave', () => {
         this.hoverButton = null;
-        this.previewExpand = false;
       });
     };
-    button('btn-expand', () => { if (g.expandPlot()) this.hooks.changed(); }, 'expand');
-    button('btn-sling', () => { if (g.upgradeSling()) this.hooks.changed(); }, 'sling');
-    button('btn-repair', () => { if (g.repairAll()) this.hooks.changed(); }, 'repair');
+    button('btn-project', () => this.fundProject(), 'project');
     button('btn-start', () => this.hooks.startDay(), 'start');
     button('btn-pause', () => this.hooks.togglePause(), 'pause');
     button('btn-speed', () => this.hooks.toggleSpeed(), 'speed');
     button('btn-skip', () => this.hooks.skipDay(), 'skip');
     button('btn-cl-quit', () => this.hooks.quitClassic(), 'quit');
     const explain: Record<string, string> = {
-      'btn-expand': 'Buy more land. Your plot grows by one tile on every side.',
-      'btn-sling': 'A better sling reloads faster, then hits harder.',
-      'btn-repair': 'Patch up every chewed defense at once.',
+      'btn-project': 'The Crater Project: seal the crater to win. Three stages, each opened by beating Asteroid Bucks.',
       'btn-start': 'Start the day. Crops grow and bunnies come until sundown.',
       'btn-pause': 'Freeze the action. Space or P does it too.',
-      'btn-speed': 'Fast-forward the day. F does it too.',
+      'btn-speed': 'Speed up the day: 1×, 2×, then 4×. F does it too.',
       'btn-skip': 'No bunnies left: let the crops finish the day at high speed.',
     };
     for (const [id, text] of Object.entries(explain)) $(id).dataset.balloon = text;
     document.querySelector<HTMLElement>('.scout')!.dataset.balloon =
-      'What\'s coming today: how many bunnies, what kinds, and the weather. Red arrows on the field mark their burrows.';
+      'What\'s coming today: how many bunnies, what kinds, and the weather. Tags on the burrows around the field show how many come out of each.';
     $('farm-win').dataset.balloon = 'Your farm. Plant and build here in the morning; click bunnies to sling them during the day.';
     $('info-win').dataset.balloon = 'The Almanac describes whatever you point at.';
+  }
+
+  // ------------------------------------------------------------ all clear
+
+  /** The box over the farm once the day's bunnies are dealt with: skip to sundown, or keep watching. */
+  private buildAllClear(): void {
+    $('ac-skip').addEventListener('click', () => {
+      this.hooks.unlockAudio();
+      this.hooks.skipDay();
+    });
+    $('ac-stay').addEventListener('click', () => { this.clearDismissed = true; });
+    $<HTMLInputElement>('ac-always').addEventListener('change', (e) => this.hooks.setAutoSkip((e.target as HTMLInputElement).checked));
+  }
+
+  /** While the all-clear box is up, Enter skips and Escape keeps watching. Returns true if handled. */
+  allClearKey(key: string): boolean {
+    if (!this.clearShown) return false;
+    if (key === 'Enter') this.hooks.skipDay();
+    else if (key === 'Escape') this.clearDismissed = true;
+    else return false;
+    return true;
+  }
+
+  private updateAllClear(): void {
+    const g = this.game;
+    if (g.phase !== 'round') this.clearDismissed = false;
+    const offer = !this.classic && g.allClear() && this.hooks.speed() < 8 && !this.clearDismissed && !this.hooks.autoSkip() &&
+      !this.hooks.paused();
+    if (offer !== this.clearShown) {
+      this.clearShown = offer;
+      $('all-clear').hidden = !offer;
+      $<HTMLInputElement>('ac-always').checked = this.hooks.autoSkip();
+    }
+    if (offer) {
+      const n = g.bunnies.filter((b) => !b.dead && !b.gone).length;
+      this.set('ac-text', (n ? `No more bunnies are coming, and the last ${n === 1 ? 'one is' : `${n} are`} heading home.`
+        : 'Every bunny today has been dealt with.') + ' Skip ahead to sundown? Your crops grow just the same.');
+    }
+    const check = $('mi-autoskip');
+    if (check.classList.contains('checked') !== this.hooks.autoSkip()) check.classList.toggle('checked');
   }
 
   select(item: ShopItem | null): void {
     this.selected = item;
     for (const [k, el] of this.itemEls) el.classList.toggle('selected', !!item && keyOf(item) === k);
+    if (item) this.showTab(item.type === 'crop' || item.type === 'till' ? 'seeds' : item.type === 'land' || item.type === 'smoke' ? 'farm' : 'defense');
+  }
+
+  showTab(t: Tab): void {
+    this.tab = t;
+    document.querySelectorAll<HTMLElement>('#store-tabs .tab').forEach((el) => el.classList.toggle('on', el.dataset.tab === t));
+    document.querySelectorAll<HTMLElement>('#plan-panel .page').forEach((el) => { el.hidden = el.dataset.page !== t; });
+  }
+
+  /** The weapon shop, the Seed Lab, and the farm upgrades: one row (or card) each. */
+  private buildShopRows(): void {
+    const g = this.game;
+    const row = (host: HTMLElement, key: string, icon: string, name: string, onBuy: () => boolean) => {
+      const el = document.createElement('div');
+      el.className = 'shoprow';
+      el.innerHTML = `<img src="${icon}" alt=""><div class="info"><span class="name">${name}</span> <span class="lv"></span>` +
+        `<div class="desc"></div></div><button class="btn buy"></button><span class="badge">NEW</span>`;
+      el.querySelector('.buy')!.addEventListener('click', () => {
+        this.hooks.unlockAudio();
+        if (onBuy()) this.hooks.changed();
+      });
+      el.addEventListener('mouseenter', () => { this.hoverRow = key; });
+      el.addEventListener('mouseleave', () => { this.hoverRow = null; });
+      el.dataset.key = key;
+      host.appendChild(el);
+    };
+    for (const k of WEAPON_ORDER) row($('weapon-rows'), `weapon:${k}`, dataURL(weaponIcon(k)), WEAPONS[k].name, () => g.buyWeapon(k));
+    for (const k of FARM_ORDER) row($('farm-rows'), `farm:${k}`, dataURL(farmIcon(k)), FARM[k].name, () => g.buyFarm(k));
+    // the Seed Lab: a card per crop, like the seed shelf
+    for (const k of CROP_ORDER) {
+      const el = document.createElement('div');
+      el.className = 'item lab';
+      el.innerHTML = `<img src="${iconURL(k)}" alt=""><span class="name">${CROPS[k].name}</span><span class="cost"></span>`;
+      el.addEventListener('click', () => {
+        this.hooks.unlockAudio();
+        if (g.breed(k)) this.hooks.changed();
+      });
+      el.addEventListener('mouseenter', () => { this.hoverRow = `lab:${k}`; });
+      el.addEventListener('mouseleave', () => { this.hoverRow = null; });
+      el.dataset.key = `lab:${k}`;
+      $('lab-items').appendChild(el);
+    }
+  }
+
+  /** Keep the weapon, lab and farm rows' prices, levels and locks current. */
+  private updateShopRows(): void {
+    const g = this.game;
+    const fresh = new Set<string>(g.newUnlocks);
+    const visible = (t: Tab) => this.tab === t;
+    const setRow = (key: string, level: string, desc: string, price: string, can: boolean, locked: boolean, isNew: boolean) => {
+      const el = document.querySelector<HTMLElement>(`.shoprow[data-key="${key}"]`)!;
+      el.classList.toggle('locked', locked);
+      el.classList.toggle('new', isNew);
+      this.set(`${key}-lv`, level, el.querySelector<HTMLElement>('.lv')!);
+      this.set(`${key}-desc`, desc, el.querySelector<HTMLElement>('.desc')!);
+      this.set(`${key}-buy`, price, el.querySelector<HTMLElement>('.buy')!);
+      const b = el.querySelector<HTMLButtonElement>('.buy')!;
+      if (b.disabled !== !can) b.disabled = !can;
+    };
+    for (const k of visible('weapons') ? WEAPON_ORDER : []) {
+      const level = g.weapons[k];
+      const lock = k === 'sling' ? null : g.lockReason(k);
+      const price = g.weaponPrice(k);
+      const label = lock ? goalShort(k as Unlock) : price === null ? 'Max' : `${level ? '▲' : 'Buy'} ${money(price)}`;
+      const inHand = level > 0 && g.weapon === k ? ' · <b>in hand</b>' : '';
+      setRow(`weapon:${k}`, level ? stars(level, WEAPON_LEVELS) : '', `${weaponLine(k, level || 1)}${inHand}`, label,
+        g.weaponProblem(k) === null, !!lock, fresh.has(k));
+    }
+    for (const k of visible('farm') ? FARM_ORDER : []) {
+      const level = g.farm[k];
+      const lock = g.lockReason(k);
+      const price = g.farmPrice(k);
+      const max = FARM[k].costs.length;
+      setRow(`farm:${k}`, max > 1 ? stars(level, max) : level ? '✓' : '', FARM[k].blurb,
+        lock ? goalShort(k) : price === null ? 'Done' : money(price), g.farmProblem(k) === null, !!lock, fresh.has(k));
+    }
+    const labLock = g.lockReason('lab');
+    this.set('lab-note', labLock ? `<b>Locked.</b> ${labLock}` :
+      `Breed a better strain: each level grows ${Math.round(HYBRID_GROWTH * 100)}% faster and sells ${Math.round(HYBRID_VALUE * 100)}% higher.`);
+    for (const k of visible('lab') ? CROP_ORDER : []) {
+      const el = document.querySelector<HTMLElement>(`.item.lab[data-key="lab:${k}"]`)!;
+      const lock = labLock ?? g.lockReason(k);
+      const price = hybridCost(k, g.hybrid[k]);
+      el.classList.toggle('locked', !!lock);
+      el.classList.toggle('poor', !lock && price !== null && g.credits < price);
+      const text = lock ? (labLock ? stars(0, HYBRID_LEVELS) : goalShort(k)) : `${stars(g.hybrid[k], HYBRID_LEVELS)} ${price === null ? 'max' : money(price)}`;
+      this.set(`lab:${k}-cost`, text, el.querySelector<HTMLElement>('.cost')!);
+    }
+    // a dot on any tab with something new in it today
+    const tabNew: Record<Tab, boolean> = {
+      seeds: CROP_ORDER.some((k) => fresh.has(k)),
+      defense: DEFENSE_ORDER.some((k) => fresh.has(k)) || [...fresh].some((u) => u.startsWith('upgrade')),
+      weapons: WEAPON_ORDER.some((k) => fresh.has(k)),
+      lab: fresh.has('lab'),
+      farm: FARM_ORDER.some((k) => fresh.has(k)) || fresh.has('land') || fresh.has('smoke'),
+    };
+    document.querySelectorAll<HTMLElement>('#store-tabs .tab').forEach((el) => el.classList.toggle('new', tabNew[el.dataset.tab as Tab]));
+  }
+
+  /** Pick up a store item, or put it back down if it's already in hand. Locked items say what opens them. */
+  pick(item: ShopItem): void {
+    const lock = this.game.itemLock(item);
+    if (lock) {
+      this.game.emit({ t: 'error', msg: lock });
+      return;
+    }
+    this.select(this.selected && keyOf(this.selected) === keyOf(item) ? null : item);
+  }
+
+  private fundProject(): void {
+    const g = this.game;
+    const problem = g.projectProblem();
+    if (problem) {
+      g.emit({ t: 'error', msg: problem });
+      return;
+    }
+    if (g.project < PROJECT.length - 1) {
+      if (g.fundProject()) {
+        this.hooks.changed();
+        this.banner(PROJECT[g.project - 1].name, 'The crater rumbles. It did not like that.', 2.2);
+      }
+      return;
+    }
+    this.confirmCap();
   }
 
   // ------------------------------------------------------------ per-frame refresh
 
   /** Write text only when it changed, to keep the DOM quiet. */
-  private set(id: string, html: string): void {
+  private set(id: string, html: string, el: HTMLElement = $(id)): void {
     if (this.memo.get(id) === html) return;
     this.memo.set(id, html);
-    $(id).innerHTML = html;
+    el.innerHTML = html;
   }
 
   update(dt: number): void {
@@ -317,13 +565,15 @@ export class UI {
     $('title-panel').hidden = planning || day || !!classic;
     if (classic) this.updateClassic(classic);
     this.set('store-title', classic ? 'Scoreboard' : planning ? 'Farm Store' : day ? 'Out in the Field' : 'Farm Store');
-    this.set('farm-title', classic ? 'Bunny Killer Classic' : g.phase === 'title' ? 'Bunny Killer 4' : `Bunny Killer 4 — Day ${g.round}`);
+    this.set('farm-title', classic ? 'Bunny Killer Classic' : g.phase === 'title' ? 'Bunny Killer 4' : `Bunny Killer 4 — Day ${g.round}${g.mode === 'hard' ? ' (Hard)' : ''}`);
     this.set('mb-clock', this.clockText());
     this.set('mi-mute', this.hooks.muted() ? 'Sound On' : 'Sound Off');
     this.set('mi-music', this.hooks.musicMuted() ? 'Music On' : 'Music Off');
     this.set('mi-balloons', this.hooks.balloonsOn() ? 'Hide Balloons' : 'Show Balloons');
-    this.set('mi-speed', this.hooks.speed() > 1 ? 'Normal Speed' : 'Fast Forward');
+    const spd = this.hooks.speed();
+    this.set('mi-speed', spd === 1 ? 'Fast Forward (2×)' : spd === 2 ? 'Faster (4×)' : 'Normal Speed');
 
+    this.updateAllClear();
     if (planning) this.updatePlanning();
     if (day) this.updateDay();
     this.updateInfo();
@@ -355,15 +605,17 @@ export class UI {
     switch (g.phase) {
       case 'planning': return `${when} · Dawn`;
       case 'round': {
-        const mins = 6 * 60 + Math.floor((g.time / ROUND_SECONDS) * 14 * 60);
+        const start = g.lastNight ? 20 : 6; // The Last Night runs 8 PM to 6 AM
+        const mins = (start * 60 + Math.floor((g.time / ROUND_SECONDS) * (g.lastNight ? 10 : 14) * 60)) % (24 * 60);
         const h = Math.floor(mins / 60);
         const m = Math.floor(mins % 60 / 15) * 15;
         const h12 = ((h + 11) % 12) + 1;
         return `${when} · ${h12}:${m.toString().padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
       }
-      case 'sundown': return `${when} · Sundown`;
+      case 'sundown': return `${when} · ${g.lastNight ? 'Dawn' : 'Sundown'}`;
       case 'harvest':
       case 'summary': return `${when} · Evening`;
+      case 'victory': return 'Crater sealed';
       default: return 'Foreclosed';
     }
   }
@@ -380,39 +632,106 @@ export class UI {
     this.set('credits', `¢${g.credits}`);
     this.set('day-label', this.calendar());
     for (const [k, el] of this.itemEls) {
-      if (k === 'remove' || k === 'upgrade') continue;
-      const [type, kind] = k.split(':');
-      const cost = type === 'crop' ? CROPS[kind as keyof typeof CROPS].seedCost : DEFENSES[kind as keyof typeof DEFENSES].cost;
-      el.classList.toggle('poor', g.credits < cost);
+      const item = this.items.get(k)!;
+      const what = unlockOf(item);
+      const locked = !!g.itemLock(item);
+      el.classList.toggle('locked', locked);
+      el.classList.toggle('new', !!what && g.newUnlocks.includes(what));
+      const idle = item.type === 'smoke' && !locked && !!g.smokeProblem();
+      el.classList.toggle('poor', idle || (!locked && g.credits < g.itemCost(item) && item.type !== 'remove' && item.type !== 'upgrade'));
+      let price = item.type === 'remove' ? 'refunds' : item.type === 'upgrade' ? 'defenses'
+        : item.type === 'till' ? `${TILL_COST}¢ a tile` : item.type === 'land' ? `${g.itemCost(item)}¢ a lot` : `${g.itemCost(item)}¢`;
+      if (locked && what) price = goalShort(what);
+      else if (item.type === 'smoke' && g.smoked) price = 'smoking…';
+      else if (item.type === 'smoke' && (g.isBossDay() || g.lastNight)) price = 'Buck today';
+      else if (item.type === 'crop') {
+        const trend = g.priceTrend(item.kind);
+        const arrow = trend >= 1.08 ? '↑' : trend <= 0.92 ? '↓' : '';
+        price = `${g.itemCost(item)}¢ <span class="sell">▸${Math.round(g.cropPrice(item.kind))}¢${arrow}</span>`;
+      }
+      this.set(`${k}-cost`, price, el.querySelector<HTMLElement>('.cost')!);
+      if (item.type === 'crop') this.updateDays(k, el, locked ? null : item.kind);
     }
-    const exp = g.expandCost();
-    const up = g.slingUpgradeCost();
     const rep = g.repairCost();
-    this.setButton('btn-expand', exp === null ? 'Land: Max' : `Land ${exp}¢`, exp === null || g.credits < exp);
-    this.setButton('btn-sling', up === null ? 'Sling: Max' : `Sling ${up}¢`, up === null || g.credits < up);
-    this.setButton('btn-repair', rep === 0 ? 'Repair' : `Repair ${rep}¢`, rep === 0 || g.credits < rep);
+    const cell = $('repair-cell');
+    cell.classList.toggle('locked', rep === 0);
+    cell.classList.toggle('poor', rep > 0 && g.credits < rep);
+    this.set('repair-cost', rep === 0 ? 'all fixed' : `${rep}¢ for ${g.chewedCount()}`, cell.querySelector<HTMLElement>('.cost')!);
+    this.updateProject();
+    this.updateShopRows();
     const counts = g.waveCounts();
-    const total = g.wave.length;
+    const total = g.waveTotal();
     const kinds = BUNNY_ORDER.filter((k) => counts[k])
       .map((k) => `<span class="kind" title="${BUNNIES[k].name}">${spriteImg(sprites().bunnies[k].frames[0], k === 'mutant' ? 0.5 : 1)}×${counts[k]}</span>`)
       .join('');
-    const breed = g.breedBonus > 0 ? `<br>${g.breedBonus} of them are babies of yesterday's well-fed escapees.` : '';
-    const boss = counts.mutant ? '<br><b>Something is stirring in the crater…</b>' : '';
+    const breed = g.breedBonus > 0 ? ` ${g.breedBonus} are babies of yesterday's escapees.` : '';
+    const boss = g.lastNight ? '' : counts.mutant
+      ? `<br><b>${g.smoked ? 'You smoked an Asteroid Buck out of the crater!' : 'An Asteroid Buck is climbing out of the crater today!'}</b>` : '';
+    const fromCrater = g.project * ANGER.craterBunnies;
+    // only the newest arrival gets introduced, so the report stays short
+    const met = (k: (typeof BUNNY_ORDER)[number]) => BUNNIES[k].boss && g.stats.bossesBeaten > 0; // a smoked-out Buck isn't news
+    const newest = BUNNY_ORDER.filter((k) => counts[k] && k !== 'common' && !met(k) && g.round - firstRound(k, g.mode) < 3)
+      .sort((a, b) => firstRound(b, g.mode) - firstRound(a, g.mode))[0];
+    const newcomers = newest ? `<div class="newcomer"><b>New: ${BUNNIES[newest].name}.</b> ${BUNNIES[newest].blurb}</div>` : '';
+    const night = g.lastNight
+      ? `<div class="alarm"><b>THE LAST NIGHT.</b> ${g.lastNightBucks} Asteroid Bucks climb out of the crater tonight. ` +
+        'Bonk every one before dawn and the crater is sealed for good.</div>' : '';
     const w = WEATHER[g.weather];
     const season = SEASONS[g.season];
     const firstOfSeason = (g.round - 1) % 7 === 0 && g.round > 1;
     const forecast = `<div class="forecast"><span class="wx">${WEATHER_ICON[g.weather]}</span> <b>${w.name}.</b> ` +
       `${g.weather === 'sunny' ? '' : w.blurb}${firstOfSeason || g.round === 1 ? ` <i>${season.name}: ${season.blurb}</i>` : ''}</div>`;
-    this.set('scout', `${forecast}<b>${total}</b> bunnies from <b>${g.burrows.length}</b> burrows today.${breed}${boss}<div class="kinds">${kinds}</div>`);
+    const where = fromCrater > 0 ? `${g.burrows.length} burrows and the crater` : `${g.burrows.length} burrows`;
+    this.set('scout', `${night}${forecast}<b>${total}</b> bunnies from ${where}.` +
+      `${breed}${boss}<div class="kinds">${kinds}</div>${newcomers}`);
     const noCrops = g.cropCount() === 0;
+    const cheapest = Math.min(...CROP_ORDER.filter((k) => g.isUnlocked(k)).map((k) => CROPS[k].seedCost));
+    const broke = noCrops && g.credits < cheapest;
     $<HTMLButtonElement>('btn-start').disabled = noCrops;
-    this.set('btn-start', noCrops ? 'Plant something first' : 'Start the Day ▸');
+    this.set('btn-start', broke ? 'Sell a defense to buy seeds' : noCrops ? 'Plant something first'
+      : g.lastNight ? 'Begin the Last Night ▸' : 'Start the Day ▸');
   }
 
-  private setButton(id: string, label: string, disabled: boolean): void {
-    this.set(id, label);
-    const b = $<HTMLButtonElement>(id);
-    if (b.disabled !== disabled) b.disabled = disabled;
+  /**
+   * The corner of a seed on the shelf: how many days it takes today ("2d"), or how many fruit a day ("×2"), when
+   * that's worth knowing. Green when growing fast has bought a day or a fruit; red when the weather costs one.
+   */
+  private updateDays(key: string, el: HTMLElement, kind: CropKind | null): void {
+    let text = '';
+    let cls = 'days';
+    if (kind) {
+      const speed = this.game.growthToday(kind);
+      const days = ripenDays(kind, speed);
+      const normal = ripenDays(kind);
+      const fruit = fruitsPerDay(kind, speed);
+      if (fruit > 1) {
+        text = `×${fruit}`;
+        cls += ' up';
+      } else if (days > 1 || days !== normal) {
+        text = `${days}d`;
+        if (days !== normal) cls += days < normal ? ' up' : ' down';
+      }
+    }
+    const tag = el.querySelector<HTMLElement>('.days')!;
+    if (tag.className !== cls) tag.className = cls;
+    this.set(`${key}-days`, text, tag);
+  }
+
+  /** The Crater Project button: how far along it is, and what the next stage needs. */
+  private updateProject(): void {
+    const g = this.game;
+    const stage = PROJECT[g.project];
+    const pips = PROJECT.map((_, n) => `<span class="pip${n < g.project ? ' done' : ''}"></span>`).join('');
+    let label: string;
+    if (g.lastNight) label = '<b>The Last Night</b> · tonight';
+    else if (!stage) label = '<b>Sealed</b>';
+    else if (g.stats.bossesBeaten < stage.bucks) {
+      label = `<b>${stage.name}</b> · Bucks ${g.stats.bossesBeaten}/${stage.bucks}`;
+    } else label = `<b>${stage.name}</b> · ${money(g.projectCost() ?? 0)}`;
+    this.set('btn-project', `<span class="pips">${pips}</span>${label}`);
+    const b = $<HTMLButtonElement>('btn-project');
+    b.classList.toggle('ready', g.projectProblem() === null);
+    b.classList.toggle('night', g.lastNight);
   }
 
   private updateDay(): void {
@@ -420,6 +739,7 @@ export class UI {
     const rs = g.roundStats;
     this.set('credits2', `¢${g.credits}`);
     this.set('day-label2', this.calendar());
+    this.set('sun-label', g.lastNight ? 'Until dawn' : 'Daylight');
     const frac = g.phase === 'round' ? Math.min(1, g.time / ROUND_SECONDS) : 1;
     ($('sunbar') as HTMLElement).style.width = `${(1 - frac) * 100}%`;
     const coming = Math.max(0, g.bunniesLeft() - g.bunnies.length);
@@ -428,10 +748,19 @@ export class UI {
     this.set('st-kills', `${rs.kills}`);
     this.set('st-lost', `${rs.cropsLost}`);
     this.set('st-fed', `${rs.escapedFed}`);
+    const cd = g.reloadFrac();
+    document.querySelectorAll<HTMLElement>('#weapon-bar .wpn').forEach((el) => {
+      const k = el.dataset.weapon as WeaponKind;
+      el.hidden = g.weapons[k] <= 0;
+      el.classList.toggle('on', g.weapon === k);
+      const bar = el.querySelector<HTMLElement>('.cd')!;
+      const h = `${Math.round((g.weapon === k ? cd : 0) * 100)}%`;
+      if (bar.style.height !== h) bar.style.height = h;
+    });
     this.set('btn-pause', this.hooks.paused() ? 'Resume' : 'Pause');
-    this.set('btn-speed', `Speed ${Math.min(2, this.hooks.speed())}×`);
-    const clear = g.phase === 'round' && g.bunniesLeft() === 0 && this.hooks.speed() < 8;
-    $('skip-row').hidden = !clear;
+    this.set('btn-speed', this.hooks.speed() >= 8 ? 'Skipping ▸▸' : `Speed ${this.hooks.speed()}×`);
+    // after "Keep Watching", the skip is still here
+    $('skip-row').hidden = !(g.allClear() && this.hooks.speed() < 8 && !this.clearShown);
   }
 
   // ------------------------------------------------------------ almanac
@@ -440,7 +769,8 @@ export class UI {
     const g = this.game;
     let html = '';
     const item = this.hoverItem ?? (this.hoverTile < 0 ? this.selected : null);
-    if (this.hoverButton && g.phase === 'planning') html = this.buttonInfo(this.hoverButton);
+    if (this.hoverRow) html = this.rowInfo(this.hoverRow);
+    else if (this.hoverButton && g.phase === 'planning') html = this.buttonInfo(this.hoverButton);
     else if (item) html = this.itemInfo(item);
     else if (this.hoverTile >= 0) html = this.tileInfo(this.hoverTile);
     if (!html) html = this.tip();
@@ -448,44 +778,135 @@ export class UI {
   }
 
   private itemInfo(item: ShopItem): string {
+    const g = this.game;
+    const lock = g.phase === 'planning' ? g.itemLock(item) : null;
+    const locked = lock ? `<p class="lock"><b>Locked.</b> ${lock}</p>` : '';
+    if (item.type === 'till') {
+      return `<div class="title">Hoe — ${TILL_COST}¢ a tile</div><p>Till grass on your land into a seedbed. Crops only grow in tilled soil; ` +
+        'defenses go anywhere on your land.</p><p class="hint">Drag to till a whole row.</p>';
+    }
+    if (item.type === 'land') {
+      const owned = g.lots.filter(Boolean).length;
+      return `<div class="title">Buy Land — ${lotPrice(g.lotsBought)}¢</div>${locked}<p>Click any lot for sale (outlined) to buy it: ` +
+        `2 by 2 tiles of grass. Drag to buy a strip. Each lot costs a little more than the last.</p>` +
+        `<p class="hint">You own ${owned} of ${g.lots.length} lots.</p>`;
+    }
+    if (item.type === 'smoke') {
+      const now = lock ? '' : g.smoked ? 'The crater is smoking: a Buck comes out today.'
+        : g.smokeProblem() ?? 'Pick it, then click the crater.';
+      return `<div class="title">Smoke Bomb — ${SMOKE_BOMB}¢</div>${locked}<p>Throw it into the crater in the morning and an ` +
+        'Asteroid Buck climbs out today, whatever the calendar says. Beat it and it counts toward the Crater Project, ' +
+        'like any Buck. One a day.</p>' + (now ? `<p class="hint">${now}</p>` : '');
+    }
     if (item.type === 'remove') {
       return `<div class="title">Dig Up / Sell</div><p>Dig up a crop you planted today for a full refund, ` +
         `or sell a defense. Things bought today refund in full; used defenses sell for half, less wear.</p>` +
         `<p class="hint">Right-click a tile does the same.</p>`;
     }
     if (item.type === 'upgrade') {
-      return `<div class="title">Upgrade</div><p>Click a defense to improve it, up to level ${MAX_LEVEL}: ` +
-        `more range, faster, harder-hitting, sturdier.</p><p class="hint">Hover a defense with this tool to see the price.</p>`;
+      const three = g.lockReason('upgrade3');
+      const hint = lock ? '' : three ?? 'Hover a defense with this tool to see the price.';
+      return `<div class="title">Upgrade</div>${locked}<p>Click a defense to improve it, up to level ${MAX_LEVEL}: ` +
+        `more range, faster, harder-hitting, sturdier.</p>${hint ? `<p class="hint">${hint}</p>` : ''}`;
     }
     if (item.type === 'crop') {
       const c = CROPS[item.kind];
-      const days = c.growTime <= ROUND_SECONDS ? '1 day' : `${Math.ceil(c.growTime / ROUND_SECONDS)} days`;
-      return `<div class="title">${c.name} — ${c.seedCost}¢</div>` +
-        `<div class="meta">Ripens in ${c.growTime}s (${days}) · sells ${c.sellValue}¢<br>` +
-        `Toughness ${c.hp} · Bunnies: ${APPEAL(c.attract)}</div><p>${c.blurb}</p>`;
+      const pct = Math.round(g.priceTrend(item.kind) * 100);
+      const speed = g.growthToday(item.kind);
+      const days = ripenDays(item.kind, speed);
+      const normal = ripenDays(item.kind);
+      const faster = (need: number) => `Grow it ${Math.max(1, Math.ceil((need / speed - 1) * 100))}% faster`;
+      const times = (n: number) => (n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`);
+      let grows: string;
+      let hint: string;
+      if (c.regrow) {
+        const fruit = fruitsPerDay(item.kind, speed);
+        grows = `Fruits ${times(fruit)} a day${fruit > 1 ? ' today' : ''}, ${c.harvests} in all${days > 1 ? `, the first in ${days} days` : ''}`;
+        hint = `${faster(((fruit + 1) * c.regrow) / ROUND_SECONDS)} and it fruits ${times(fruit + 1)} a day.`;
+      } else {
+        grows = `Ripens in ${days} ${days === 1 ? 'day' : 'days'}${days !== normal ? ` today (normally ${normal})` : ''}`;
+        hint = days > 1 ? `${faster(c.growTime / (ROUND_SECONDS * (days - 1)))} and it ripens in ${days - 1 === 1 ? 'a day' : `${days - 1} days`}.`
+          : 'Ripe within the day, so faster won\'t help.';
+      }
+      return `<div class="title">${c.name} — ${c.seedCost}¢</div>${locked}` +
+        `<div class="meta">${grows} · Sells ${Math.round(g.cropPrice(item.kind))}¢ tonight` +
+        `${pct === 100 ? '' : ` (${pct}%)`} · Toughness ${c.hp} · Bunnies: ${APPEAL(c.attract)}</div>` +
+        `<p>${c.blurb}</p>${this.marketNote(item.kind)}${lock ? '' : `<p class="hint">${hint}</p>`}`;
     }
     const d = DEFENSES[item.kind];
-    return `<div class="title">${d.name} — ${d.cost}¢</div><div class="meta">${statLine(item.kind, 1)}</div><p>${d.blurb}</p>`;
+    return `<div class="title">${d.name} — ${d.cost}¢</div>${locked}<div class="meta">${statLine(item.kind, 1)}</div><p>${d.blurb}</p>`;
+  }
+
+  /** Almanac text for a weapon, farm upgrade, or Seed Lab strain. */
+  private rowInfo(key: string): string {
+    const g = this.game;
+    const [type, kind] = key.split(':');
+    const lockLine = (lock: string | null) => (lock ? `<p class="lock"><b>Locked.</b> ${lock}</p>` : '');
+    if (type === 'weapon') {
+      const k = kind as WeaponKind;
+      const w = WEAPONS[k];
+      const level = g.weapons[k];
+      const lock = k === 'sling' ? null : g.lockReason(k);
+      const price = g.weaponPrice(k);
+      const next = price === null ? '<p>As good as it gets.</p>'
+        : `<p><b>${level ? `Level ${level + 1}` : 'Buy it'}</b> for ${money(price)}${level ? `: ${weaponLine(k, level + 1)}` : ''}</p>`;
+      return `<div class="title">${w.name} <span class="lv">${stars(level, WEAPON_LEVELS)}</span></div>${lockLine(lock)}` +
+        `${level ? `<div class="meta">${weaponLine(k, level)}${w.hold ? ' · hold to fire' : ''}</div>` : ''}<p>${w.blurb}</p>${lock ? '' : next}`;
+    }
+    if (type === 'farm') {
+      const k = kind as FarmUpgrade;
+      const f = FARM[k];
+      const price = g.farmPrice(k);
+      const max = f.costs.length;
+      return `<div class="title">${f.name}${max > 1 ? ` <span class="lv">${stars(g.farm[k], max)}</span>` : ''}</div>${lockLine(g.lockReason(k))}` +
+        `<p>${f.blurb}</p><p>${price === null ? 'Done.' : `<b>${money(price)}</b>`}</p>`;
+    }
+    const k = kind as CropKind;
+    const level = g.hybrid[k];
+    const price = hybridCost(k, level);
+    const now = level ? `Now: grows ${Math.round(HYBRID_GROWTH * 100 * level)}% faster, sells ${Math.round(HYBRID_VALUE * 100 * level)}% higher.` : '';
+    return `<div class="title">${CROPS[k].name} strain <span class="lv">${stars(level, HYBRID_LEVELS)}</span></div>` +
+      `${lockLine(g.lockReason('lab') ?? g.lockReason(k))}<p>${now} Every ${CROPS[k].name.toLowerCase()} you grow gets the better strain.</p>` +
+      `<p>${price === null ? 'The best strain there is.' : `Next level: <b>${money(price)}</b>`}</p>`;
+  }
+
+  /** Only when it matters: the market is still full of a crop from recent harvests. */
+  private marketNote(kind: CropKind): string {
+    const g = this.game;
+    const days = g.wanted[kind];
+    if (days > 0) {
+      const name = kind === 'corn' || kind === 'lettuce' ? CROPS[kind].name : plural(CROPS[kind].name);
+      return `<p class="hint">Nobody's sold ${name.toLowerCase()} in town for ${days === 1 ? 'a day' : `${days} days`}: ` +
+        `+${Math.round(g.demand(kind) * 100)}% tonight.</p>`;
+    }
+    const room = Math.max(0, Math.floor(MARKET.glut - g.glut[kind]));
+    if (room >= MARKET.glut) return '';
+    return `<p class="hint">Still a glut from last time: about ${room} more sell at full price tonight.</p>`;
   }
 
   private buttonInfo(key: string): string {
     const g = this.game;
     switch (key) {
-      case 'expand': {
-        const next = PLOT_LEVELS[g.plotLevel + 1];
-        if (!next) return '<div class="title">Land</div><p>You own every acre there is.</p>';
-        return `<div class="title">Buy Land — ${next.cost}¢</div><p>Grow your plot to ${next.size}×${next.size}. ` +
-          'Everything you already have stays put.</p>';
+      case 'project': {
+        const steps = PROJECT.map((st, n) => `<li${n < g.project ? ' class="done"' : ''}><b>${st.name}</b> ${money(st.cost)} · ` +
+          `${st.bucks === 1 ? '1 Buck' : `${st.bucks} Bucks`}</li>`).join('');
+        const problem = g.projectProblem();
+        let note = g.lastNight ? 'Tonight: bonk every Buck before dawn.' : problem && problem !== 'Not enough credits.' ? problem : '';
+        const needBucks = !g.lastNight && g.project < PROJECT.length && g.stats.bossesBeaten < PROJECT[g.project].bucks;
+        if (needBucks && g.isUnlocked('smoke')) {
+          note = `${g.stats.bossesBeaten} of ${PROJECT[g.project].bucks} Bucks beaten. Smoke one out: <span class="kbd">B</span>`;
+        }
+        return `<div class="title">The Crater Project</div><p>Seal the crater to win. Each stage angers it; the last starts The Last Night.</p>` +
+          `<ol class="steps">${steps}</ol>${note ? `<p class="hint">${note}</p>` : ''}`;
       }
-      case 'sling': {
-        const next = SLING_LEVELS[g.slingLevel + 1];
-        const cur = SLING_LEVELS[g.slingLevel];
-        if (!next) return `<div class="title">${cur.name}</div><p>The finest sling in the county.</p>`;
-        return `<div class="title">${next.name} — ${next.cost}¢</div><div class="meta">Reload ${cur.reload}s → ${next.reload}s · ` +
-          `Damage ${cur.damage} → ${next.damage}</div><p>Upgrade your trusty sling.</p>`;
+      case 'repair': {
+        const rep = g.repairCost();
+        const n = g.chewedCount();
+        return `<div class="title">Repair All${rep ? ` — ${rep}¢` : ''}</div><p>Bunnies gnaw through defenses in their way, and ` +
+          'Asteroid Bucks chew through anything. A chewed defense shows a bar over it; at zero it\'s gone. This patches every ' +
+          `one up at once, for half the cost of the damage.</p><p class="hint">${n ? `${n} ${n === 1 ? 'defense is' : 'defenses are'} ` +
+          'chewed right now.' : 'Nothing is chewed right now.'}</p>`;
       }
-      case 'repair':
-        return `<div class="title">Repair All</div><p>Patch up every chewed defense. Costs half the price of what's missing.</p>`;
       case 'start':
         return `<div class="title">Start the Day</div><p>Crops grow while the sun is up and the bunnies come. ` +
           `At sundown you harvest everything that's ripe.</p><p class="hint"><span class="kbd">Space</span> also starts the day.</p>`;
@@ -497,14 +918,34 @@ export class UI {
   private tileInfo(i: number): string {
     const g = this.game;
     const t = g.tiles[i];
+    const burrow = g.burrows.findIndex((b) => idx(b.x, b.y) === i);
+    if (burrow >= 0 && (g.phase === 'planning' || g.phase === 'round')) {
+      const left = g.burrowCounts()[burrow];
+      const kinds = BUNNY_ORDER.map((k) => [k, g.burrowKinds(burrow)[k] ?? 0] as const).filter(([, n]) => n > 0)
+        .map(([k, n]) => `${n} ${n === 1 ? BUNNIES[k].name : plural(BUNNIES[k].name)}`);
+      const when = g.phase === 'planning' ? `will come out of here today` : `still to come out of here`;
+      return `<div class="title">Burrow</div><p><b>${left}</b> ${left === 1 ? 'bunny' : 'bunnies'} ${when}` +
+        `${g.phase === 'planning' && kinds.length ? `: ${kinds.join(', ')}` : ''}.</p>` +
+        '<p class="hint">They head for the tastiest crop they can reach. Defenses near their path meet them first.</p>';
+    }
     if (t.crop) {
       const c = CROPS[t.crop.kind];
       const pct = Math.min(100, Math.floor((t.crop.growth / c.growTime) * 100));
-      const value = Math.max(1, Math.round(c.sellValue * (t.crop.hp / c.hp)));
-      const status = pct >= 100 ? 'Ripe!' : `${pct}% grown`;
-      const boost = g.growthMult[i] > 1 ? ' · watered' : '';
+      const value = Math.max(1, Math.round(g.cropPrice(t.crop.kind) * (t.crop.hp / c.hp)));
+      const fruit = g.ripeFruit(t.crop);
+      let status = fruit > 1 ? `Ripe! ${fruit} ready` : 'Ripe!';
+      if (!fruit) {
+        // at this tile's speed, counting whatever daylight is left today
+        const speed = g.tileGrowth(i, t.crop.kind);
+        const today = g.phase === 'planning' ? ROUND_SECONDS : g.phase === 'round' ? Math.max(0, ROUND_SECONDS - g.time) : 0;
+        const left = c.growTime - t.crop.growth - today * speed;
+        const days = left <= 0 ? 0 : Math.ceil(left / (ROUND_SECONDS * speed) - 1e-9);
+        status = `${pct}% grown · ${days === 0 ? (g.phase === 'round' ? 'ripe by sundown' : 'ripe tonight')
+          : days === 1 ? 'ripe tomorrow' : `ripe in ${days} days`}`;
+      }
+      const boost = g.sprinklerGrowth(i) > 1 ? ' · watered' : '';
       return `<div class="title">${c.name}</div><div class="meta">${status}${boost}<br>` +
-        `Health ${Math.ceil(t.crop.hp)}/${c.hp} · worth ${value}¢ when ripe</div>`;
+        `Health ${Math.ceil(t.crop.hp)}/${c.hp} · worth ${value}¢${fruit > 1 ? ' each' : ''} at today's prices</div>`;
     }
     if (t.structure) {
       const s = t.structure;
@@ -512,16 +953,30 @@ export class UI {
       const st = defenseStats(s.kind, s.level);
       const hp = d.blocks ? `Sturdiness ${Math.ceil(s.hp)}/${st.hp}` : 'Armed';
       const sell = g.phase === 'planning' ? ` · sells for ${g.removeValue(i)}¢` : '';
+      const perk = PERKS[s.kind];
+      const perkNext = perk && perk.level === s.level + 1 ? ` · ${perk.text}` : '';
       const next = s.level < MAX_LEVEL
-        ? `<p><b>Level ${s.level + 1}</b> for ${upgradeCost(s.kind, s.level)}¢: ${statLine(s.kind, s.level + 1)}</p>`
+        ? `<p><b>Level ${s.level + 1}</b> for ${upgradeCost(s.kind, s.level)}¢: ${statLine(s.kind, s.level + 1)}${perkNext}</p>`
         : '<p>Fully upgraded.</p>';
       return `<div class="title">${d.name} <span class="lv">${'★'.repeat(s.level)}</span></div>` +
         `<div class="meta">${statLine(s.kind, s.level)}<br>${hp}${sell}</div>${g.phase === 'planning' ? next : `<p>${d.blurb}</p>`}`;
     }
-    if (g.phase === 'planning' && g.owns(i)) {
-      return `<div class="title">Tilled Soil</div><p>Ready for seeds or a defense. (${tileX(i)}, ${tileY(i)})</p>`;
+    if (g.phase !== 'planning') return '';
+    if (g.owns(i)) {
+      return g.tilled[i]
+        ? '<div class="title">Tilled Soil</div><p>Ready for seeds, or a defense.</p>'
+        : `<div class="title">Your Grass</div><p>Build a defense here, or till it (the hoe, <span class="kbd">H</span>) for ${TILL_COST}¢ to plant.</p>`;
     }
-    return '';
+    if (inCrater(i)) {
+      const bomb = g.smoked ? '<p><b>It\'s smoking.</b> An Asteroid Buck comes out today.</p>'
+        : g.isUnlocked('smoke') ? '<p class="hint">Throw a Smoke Bomb in (<span class="kbd">B</span>) and a Buck comes out today.</p>' : '';
+      return `<div class="title">The Crater</div><p>Where the asteroid hit, and where the Asteroid Bucks come from.</p>${bomb}`;
+    }
+    if (lotOfTile(i) >= 0) {
+      return `<div class="title">Land for Sale</div><p>This lot is ${lotPrice(g.lotsBought)}¢. ` +
+        'Use <b>Buy Land</b> (<span class="kbd">L</span>, in the Farm tab) and click it.</p>';
+    }
+    return `<div class="title">Wild Country</div><p>Nobody's selling this. It's where the bunnies live. (${tileX(i)}, ${tileY(i)})</p>`;
   }
 
   private tip(): string {
@@ -529,9 +984,12 @@ export class UI {
     if (this.classic) return '<p>Lead the fast ones a little. Pop-ups duck back down after a moment, so be quick.</p>';
     switch (g.phase) {
       case 'planning':
+        if (g.cropCount() === 0 && g.credits < Math.min(...CROP_ORDER.filter((k) => g.isUnlocked(k)).map((k) => CROPS[k].seedCost))) {
+          return '<p><b>Out of seed money.</b> Right-click a defense on your land to sell it, then plant with what it brings.</p>';
+        }
         return this.selected
-          ? '<p>Click your plot to place it. Drag to plant a row. Right-click to dig up or sell.</p>'
-          : '<p>Pick seeds or a defense from the store, then click your plot.</p><p class="hint">Hover anything for details.</p>';
+          ? '<p>Click your land to place it. Drag to plant a row. Right-click to dig up or sell.</p>'
+          : '<p>Pick seeds or a defense from the store, then click your land. The dark land isn\'t yours yet.</p><p class="hint">Hover anything for details.</p>';
       case 'round':
         return '<p>Bunnies go for the tastiest crop they can reach. Bonk them before they eat their fill!</p>';
       case 'sundown':
@@ -602,6 +1060,7 @@ export class UI {
   showTitle(): void {
     const best = this.hooks.best();
     const save = this.hooks.hasSave();
+    const hard = this.hooks.hardOpen() ? '<button class="btn" data-act="hard">Hard Mode</button>' : '';
     this.open('title', `
       <div class="title-screen">
         <div id="logo-host"></div>
@@ -610,8 +1069,8 @@ export class UI {
           <button class="btn" data-act="help">How to Play</button>
           <button class="btn" data-act="scores">High Scores</button>
           <button class="btn" data-act="classic">Classic Mode</button>
-          ${save ? '<button class="btn" data-act="new">New Game</button><button class="btn default" data-act="continue">Continue</button>'
-            : '<button class="btn default" data-act="new">New Game</button>'}
+          ${save ? `<button class="btn" data-act="new">New Game</button>${hard}<button class="btn default" data-act="continue">Continue</button>`
+            : `${hard}<button class="btn default" data-act="new">New Game</button>`}
         </div>
         ${best ? `<div class="best">Best farm: Day ${best.round} · ${best.score}¢ harvested</div>` : ''}
         <div class="credit">Bunny Killer II (1993) · Bunny Killer 3 (1994) · Modified Environments</div>
@@ -619,23 +1078,24 @@ export class UI {
       help: () => this.showHelp(() => this.showTitle()),
       scores: () => this.showHighScores(() => this.showTitle()),
       classic: () => this.showClassicIntro(),
-      new: () => (save ? this.confirmNewGame(() => this.showTitle()) : this.hooks.newGame()),
+      new: () => (save ? this.confirmNewGame(() => this.showTitle(), 'normal') : this.hooks.newGame('normal')),
+      hard: () => this.showHardIntro(() => this.showTitle()),
       continue: () => this.hooks.continueGame(),
     }, { Enter: save ? 'continue' : 'new' });
     $('logo-host').appendChild(makeLogo());
   }
 
-  confirmNewGame(back?: () => void): void {
-    if (!this.hooks.hasSave() || this.game.phase === 'gameover') {
-      this.hooks.newGame();
+  confirmNewGame(back?: () => void, mode: Mode = this.game.mode): void {
+    if (!this.hooks.hasSave() || this.game.phase === 'gameover' || this.game.phase === 'victory') {
+      this.hooks.newGame(mode);
       return;
     }
     this.open('confirm', `
       <div class="icon-row">${spriteImg(sprites().bunnies.mutant.frames[0], 1)}
-      <div><h1>Start a new farm?</h1><p>Your current farm (Day ${this.game.round}) will be lost.</p></div></div>
+      <div><h1>Start a new farm${mode === 'hard' ? ' in Hard Mode' : ''}?</h1><p>Your current farm (Day ${this.game.round}) will be lost.</p></div></div>
       <div class="buttons"><button class="btn" data-act="cancel">Cancel</button><button class="btn default" data-act="ok">New Game</button></div>`, {
       cancel: () => (back ? back() : this.dismiss()),
-      ok: () => this.hooks.newGame(),
+      ok: () => this.hooks.newGame(mode),
     }, { Escape: 'cancel', Enter: 'ok' });
   }
 
@@ -643,33 +1103,43 @@ export class UI {
     const resume = back ?? (() => this.dismiss());
     this.open('help', `
       <h1>How to Play</h1>
+      <p><b>The goal:</b> save the farm by sealing the crater the bunnies keep coming out of. Fund the three stages of the
+      <b>Crater Project</b> in the Farm Store. Each stage opens up after you beat an Asteroid Buck, which comes on the last day
+      of every season, or throw a <b>Smoke Bomb</b> into the crater to bring one out today. The last stage starts
+      <b>The Last Night</b>: bonk every Buck before dawn to win. Do it once and <b>Hard Mode</b> opens on the title screen.</p>
       <div class="help-cols">
         <div>
           <h2>Morning: plan</h2>
           <ul>
-            <li>Buy seeds and click your plot to plant them.</li>
-            <li>Buy defenses. They take up a tile too.</li>
-            <li>Check the <b>Scouting Report</b> and the red arrows. That's where the bunnies will come from.</li>
+            <li>Buy seeds and click your tilled soil to plant them.</li>
+            <li>Buy defenses. They go anywhere on your land, grass or soil.</li>
+            <li>Buy more land a lot at a time (Farm tab, <span class="kbd">L</span>). It comes as grass: till it with the hoe (<span class="kbd">H</span>) before you plant.</li>
+            <li>Check the <b>Scouting Report</b>, and the burrows around the edge of the field. Each one's tag says how many bunnies will come out of it.</li>
           </ul>
           <h2>Day: defend</h2>
           <ul>
             <li>Crops grow while bunnies go for the tastiest one they can reach.</li>
-            <li><b>Click a bunny</b> to hit it with your sling. Poof!</li>
+            <li><b>Click a bunny</b> to fire. Poof! Buy more weapons in the store's Weapons tab; switch with <span class="kbd">1</span>–<span class="kbd">5</span>.</li>
+            <li>Burrowers pop up now and then. Hit them then, or hit their mound to startle them out.</li>
             <li>Every bunny that gets home fed brings a friend tomorrow.</li>
+            <li>Once they're all dealt with, <b>All clear!</b> lets you skip to sundown (<span class="kbd">Enter</span>).</li>
           </ul>
         </div>
         <div>
           <h2>Evening: harvest</h2>
           <ul>
-            <li>Ripe crops sell by how much of them is left.</li>
+            <li>Ripe crops sell by how much of them is left, at <b>today's market price</b> (shown in the store).</li>
+            <li>Sell too many of one crop in an evening and the price sags. Mix it up.</li>
             <li>Unripe crops stay in the ground for tomorrow.</li>
+            <li>Growing faster pays when a crop ripens a day sooner or fruits twice a day. Green tags on the seeds show it.</li>
+            <li>New seeds, defenses, weapons and upgrades unlock as you play. The Seed Lab and farm upgrades make crops grow faster and sell higher.</li>
             <li>Go broke with nothing growing and the farm is done.</li>
           </ul>
           <h2>Keys</h2>
           <ul>
-            <li><span class="kbd">1</span>–<span class="kbd">6</span> seeds, <span class="kbd">Q</span>–<span class="kbd">Y</span> defenses, <span class="kbd">X</span> dig up/sell</li>
+            <li><span class="kbd">1</span>–<span class="kbd">0</span> seeds, <span class="kbd">Q</span>–<span class="kbd">Y</span> and <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span> defenses, <span class="kbd">H</span> hoe, <span class="kbd">L</span> buy land, <span class="kbd">X</span> dig up/sell, <span class="kbd">U</span> upgrade, <span class="kbd">B</span> smoke bomb</li>
             <li><span class="kbd">Space</span> start the day / pause</li>
-            <li><span class="kbd">F</span> fast-forward, <span class="kbd">M</span> sound, <span class="kbd">N</span> music</li>
+            <li><span class="kbd">F</span> speed (1×, 2×, 4×), <span class="kbd">M</span> sound, <span class="kbd">N</span> music</li>
             <li>Right-click digs up or sells; <span class="kbd">Esc</span> puts down the tool</li>
           </ul>
         </div>
@@ -682,7 +1152,7 @@ export class UI {
     this.open('about', `
       <div class="icon-row">${spriteImg(sprites().bunnies.common.frames[0], 3)}
       <div><h1>Bunny Killer 4</h1>
-      <p>Version 0.1 (prototype)</p>
+      <p>Version 0.4 (prototype)</p>
       <p>The follow-up to Bunny Killer II (1993) and Bunny Killer 3 (1994) for the Macintosh.</p>
       <p>Part farm, part tower defense, all bunny.</p></div></div>
       <div class="buttons"><button class="btn default" data-act="ok">OK</button></div>`, { ok: back }, { Enter: 'ok', Escape: 'ok' });
@@ -701,8 +1171,10 @@ export class UI {
     const rows = CROP_ORDER.filter((k) => rs.harvested[k]).map((k) => {
       const h = rs.harvested[k]!;
       return `<tr><td>${spriteImg(sprites().crops[k].ripe, 1, 'vertical-align:middle')} ` +
-        `${CROPS[k].name} ×${h.count}</td><td class="n">${h.value}¢</td></tr>`;
+        `${CROPS[k].name} ×${h.count} <span class="each">at ${Math.round(h.value / h.count)}¢</span></td><td class="n">${h.value}¢</td></tr>`;
     });
+    // crops that flooded the market tonight
+    const flooded = CROP_ORDER.filter((k) => rs.harvested[k] && (rs.market[k] ?? 1) < SEASONS[g.season].sell * g.market[k] * 0.95);
     if (rs.bounty) rows.push(`<tr><td>Asteroid Buck bounty</td><td class="n">${rs.bounty}¢</td></tr>`);
     const earned = rs.harvestTotal + rs.bounty;
     const table = rows.length
@@ -710,22 +1182,93 @@ export class UI {
       : '<p>Nothing was ripe enough to sell today.</p>';
     const net = earned - rs.spent;
     const growing = g.cropCount();
+    const chewed = g.chewedCount();
     const lines = [
       `Bonked <b>${rs.kills}</b> ${rs.kills === 1 ? 'bunny' : 'bunnies'}.`,
-      rs.cropsLost ? `<b>${rs.cropsLost}</b> ${rs.cropsLost === 1 ? 'crop was' : 'crops were'} eaten to the roots.` : 'Not a single crop lost!',
+      rs.cropsLost ? `<b>${rs.cropsLost}</b> ${rs.cropsLost === 1 ? 'crop was' : 'crops were'} lost${rs.cropsStolen ? `, ${rs.cropsStolen} of them carried off by Bandits` : ''}.` : 'Not a single crop lost!',
       rs.structuresBroken ? `<b>${rs.structuresBroken}</b> ${rs.structuresBroken === 1 ? 'defense was' : 'defenses were'} chewed to bits.` : '',
+      chewed ? `<b>${chewed}</b> ${chewed === 1 ? 'defense is' : 'defenses are'} chewed up. <b>Repair All</b> (Defense tab) fixes ` +
+        `${chewed === 1 ? 'it' : 'them'} for ${g.repairCost()}¢.` : '',
       rs.escapedFed
         ? `<b>${rs.escapedFed}</b> got away with full bellies. Expect <b>${Math.min(rs.escapedFed, BREED_CAP)}</b> extra bunnies tomorrow.`
         : 'No bunny got home with a full belly.',
       growing ? `${growing} ${growing === 1 ? 'crop is' : 'crops are'} still growing.` : '',
+      flooded.length ? `So many ${flooded.map((k) => plural(CROPS[k].name).toLowerCase()).join(' and ')} flooded the market ` +
+        'that the last ones sold cheap. Mixing crops keeps prices up.' : '',
     ].filter(Boolean);
+    const soon = g.nightResult ? [] : g.pendingUnlocks();
+    const unlocks = soon.length
+      ? `<p class="unlocks">New at the store tomorrow: ${soon.map((u) => `<b>${unlockName(u)}</b>`).join(', ')}!</p>` : '';
+    let head = `<h1>Day ${g.round} is done</h1>`;
+    let next = `On to Day ${g.round + 1}`;
+    if (g.nightResult === 'sealed') {
+      head = `<div class="icon-row">${spriteImg(sprites().bunnies.mutant.frames[0], 1)}<div><h1>The crater is sealed!</h1>` +
+        '<p>The last Asteroid Buck went down just before dawn, and the cap slid home with a <i>clunk</i>. The glow is gone.</p></div></div>';
+      next = 'Dawn ▸';
+    } else if (g.nightResult === 'cracked') {
+      const got = g.lastNightBucks - rs.bucks;
+      head = `<div class="icon-row">${spriteImg(sprites().bunnies.mutant.frames[0], 1)}<div><h1>The cap cracked!</h1>` +
+        `<p>${got === 1 ? 'One Asteroid Buck' : `${got} Asteroid Bucks`} made it through the night, and the crater blew the lid clean off. ` +
+        `Putting it back costs ${Math.round(CAP_RETRY * 100)}%: ${money(g.projectCost() ?? 0)}. Try again when you're ready.</p></div></div>`;
+    }
     this.open('summary', `
-      <h1>Day ${g.round} is done</h1>
+      ${head}
       <h2>Harvest</h2>${table}
       <p style="margin-top:8px">Spent today: ${rs.spent}¢ · Net: <b>${net >= 0 ? '+' : ''}${net}¢</b> · Bank: <b>${g.credits}¢</b></p>
-      <ul>${lines.map((l) => `<li>${l}</li>`).join('')}</ul>
-      <div class="buttons"><button class="btn default" data-act="next">On to Day ${g.round + 1}</button></div>`,
+      <ul>${lines.map((l) => `<li>${l}</li>`).join('')}</ul>${unlocks}
+      <div class="buttons"><button class="btn default" data-act="next">${next}</button></div>`,
     { next: () => this.hooks.nextDay() }, { Enter: 'next', ' ': 'next' });
+  }
+
+  /** The last stage starts The Last Night today, so make sure the player means it. */
+  private confirmCap(): void {
+    const g = this.game;
+    this.open('cap', `
+      <div class="icon-row">${spriteImg(sprites().bunnies.mutant.frames[0], 1)}
+      <div><h1>Cap the crater today?</h1>
+      <p>This starts <b>The Last Night</b>: today's bunnies come at night, with <b>${g.lastNightBucks} Asteroid Bucks</b> among them.</p>
+      <p>Bonk every Buck before dawn and the crater is sealed: you win. If even one gets away, the cap cracks, and putting it back costs half again.</p>
+      <p class="hint">You can still plant and build after paying ${money(g.projectCost() ?? 0)}.</p></div></div>
+      <div class="buttons"><button class="btn" data-act="cancel">Not Yet</button><button class="btn default" data-act="ok">Cap It</button></div>`, {
+      cancel: () => this.closeModal(),
+      ok: () => {
+        this.closeModal();
+        if (g.fundProject()) {
+          this.hooks.changed();
+          this.banner('The Last Night', 'Bonk every Asteroid Buck before dawn', 2.6);
+        }
+      },
+    }, { Escape: 'cancel', Enter: 'ok' });
+  }
+
+  showVictory(rank = -1): void {
+    const g = this.game;
+    const hard = g.mode === 'hard';
+    const placed = rank === 0 ? '<p><b>A new high score!</b></p>' : rank > 0 ? `<p>That's <b>#${rank + 1}</b> on your high score table.</p>` : '';
+    const next = hard
+      ? '<p class="unlocks"><b>You beat Hard Mode.</b> The crater never stood a chance.</p>'
+      : '<p class="unlocks"><b>Hard Mode is open!</b> More bunnies, tougher ones, Ninjas in the first year, and four Bucks on the Last Night.</p>';
+    this.open('victory', `
+      <div class="icon-row">${spriteImg(sprites().bunnies.common.frames[0], 3)}
+      <div><h1>You saved the farm${hard ? ', the hard way' : ''}.</h1>
+      <p>The crater is capped, the glow is gone, and there won't be any more Asteroid Bucks. It took <b>${g.round}</b> days.</p>
+      <p>The bunnies are still bunnies. But now they're just bunnies.</p></div></div>
+      <table>
+        <tr><td>Days to seal the crater</td><td class="n">${g.round}</td></tr>
+        <tr><td>Bunnies bonked</td><td class="n">${g.stats.kills}</td></tr>
+        <tr><td>Asteroid Bucks beaten</td><td class="n">${g.stats.bossesBeaten}</td></tr>
+        <tr class="total"><td>Lifetime harvest</td><td class="n">${g.stats.harvest}¢</td></tr>
+      </table>
+      ${placed}${next}
+      <div class="buttons"><button class="btn left" data-act="scores">High Scores</button><button class="btn" data-act="title">Title Screen</button>
+        ${hard ? '<button class="btn default" data-act="hard">New Game</button>'
+          : '<button class="btn" data-act="new">New Game</button><button class="btn default" data-act="hard">Hard Mode ▸</button>'}</div>`,
+    {
+      title: () => this.hooks.toTitle(),
+      new: () => this.hooks.newGame('normal'),
+      hard: () => this.hooks.newGame('hard'),
+      scores: () => this.showHighScores(() => this.showVictory(rank)),
+    }, { Enter: 'hard' });
   }
 
   showGameOver(rank = -1): void {
@@ -748,9 +1291,22 @@ export class UI {
       <div class="buttons"><button class="btn left" data-act="scores">High Scores</button><button class="btn" data-act="title">Title Screen</button><button class="btn default" data-act="new">New Game</button></div>`,
     {
       title: () => this.hooks.toTitle(),
-      new: () => this.hooks.newGame(),
+      new: () => this.hooks.newGame(g.mode),
       scores: () => this.showHighScores(() => this.showGameOver(rank)),
     }, { Enter: 'new' });
+  }
+
+  /** What Hard Mode changes, before you commit to it. */
+  showHardIntro(back: () => void): void {
+    this.open('hard-intro', `
+      <div class="icon-row">${spriteImg(sprites().bunnies.ninja.frames[0], 2)}
+      <div><h1>Hard Mode</h1>
+      <p>${MODES.hard.blurb}</p>
+      <p>Prices, crops and the Crater Project stay the same. You'll just have to earn it.</p></div></div>
+      <div class="buttons"><button class="btn" data-act="back">Back</button><button class="btn default" data-act="go">Start</button></div>`, {
+      back,
+      go: () => (this.hooks.hasSave() ? this.confirmNewGame(back, 'hard') : this.hooks.newGame('hard')),
+    }, { Enter: 'go', Escape: 'back' });
   }
 
   showClassicIntro(): void {
@@ -793,13 +1349,15 @@ export class UI {
   showHighScores(back?: () => void): void {
     const list = this.hooks.scores();
     const rows = list.length
-      ? list.map((e, n) => `<tr><td class="n">${n + 1}.</td><td class="n">${e.score}¢</td><td>${e.days} ${e.days === 1 ? 'day' : 'days'}` +
-          `${e.retired ? ', retired' : ''}</td><td class="n">${e.kills} bonked</td><td class="n">${e.date}</td></tr>`).join('')
-      : '<tr><td colspan="5"><p>No finished farms yet. Every run that ends, by bust or by retirement, lands here.</p></td></tr>';
+      ? list.map((e, n) => `<tr${e.sealed ? ' class="sealed"' : ''}><td class="n">${n + 1}.</td><td class="n">${e.score}¢</td>` +
+          `<td>${e.sealed ? `<b>Sealed the crater</b> in ${e.days} days` : `${e.days} ${e.days === 1 ? 'day' : 'days'}${e.retired ? ', retired' : ''}`}` +
+          `${e.hard ? ' <span class="hard">HARD</span>' : ''}` +
+          `</td><td class="n">${e.kills} bonked</td><td class="n">${e.date}</td></tr>`).join('')
+      : '<tr><td colspan="5"><p>No finished farms yet. Every run that ends, by sealing the crater, going bust, or retiring, lands here.</p></td></tr>';
     const done = back ?? (() => this.dismiss());
     this.open('scores', `
       <h1>High Scores</h1>
-      <p>Your best farms, by lifetime harvest.</p>
+      <p>Farms that sealed the crater come first, Hard Mode ahead, fastest on top. The rest rank by lifetime harvest.</p>
       <table class="scores">${rows}</table>
       <div class="buttons"><button class="btn default" data-act="ok">OK</button></div>`, { ok: done }, { Enter: 'ok', Escape: 'ok' });
   }

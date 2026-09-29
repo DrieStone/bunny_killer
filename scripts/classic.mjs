@@ -19,7 +19,7 @@ while (Date.now() - t0 < 9000) {
     return x && c.reload <= 0 ? { x: x.x + x.vx * 0.03, y: x.y - 0.3 } : null;
   });
   if (t) {
-    await page.mouse.click(box.x + (t.x / 28) * box.width, box.y + (t.y / 18) * box.height);
+    await page.mouse.click(box.x + (t.x / 22) * box.width, box.y + (t.y / 16) * box.height);
     shots++;
     if (shots === 7) {
       await page.waitForTimeout(60);

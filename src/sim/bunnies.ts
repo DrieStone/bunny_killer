@@ -1,11 +1,24 @@
 // Bunny brains: pick a crop, walk (or tunnel) to it, eat until full, run home.
-import { BUNNIES, bunnySpeedScale, COLS, CROPS, DEFENSES, ROWS, WEATHER } from '../config';
+import { BUNNIES, bunnySpeedScale, COLS, CROPS, DEFENSES, defenseStats, PEEK, QUEEN_BROOD_MAX, ROWS, WEATHER } from '../config';
 import type { Game } from '../game';
 import type { Bunny } from '../types';
 import { exitDir, idx, isBorder, N, OBSTACLE, tileAt, tileX, tileY } from '../world';
 
 const EDGE = 0.05;
 const CHEW_REACH = 0.62; // how close to a wall's center a bunny stands to chew it
+const DECOY_APPEAL = 2.8; // how tempting a Carrot Decoy is, next to a real crop's appeal
+
+/** What a bunny could eat on a tile: a crop, or a Carrot Decoy. */
+function food(g: Game, i: number): { hp: number; decoy: boolean } | null {
+  if (i < 0) return null;
+  const t = g.tiles[i];
+  if (t.crop) return { hp: t.crop.hp, decoy: false };
+  if (t.structure?.kind === 'decoy') return { hp: t.structure.hp, decoy: true };
+  return null;
+}
+
+/** Walls and fences don't stop a bunny that tunnels under them or jumps over them. */
+const ignoresWalls = (b: Bunny) => BUNNIES[b.kind].digger || !!BUNNIES[b.kind].leaps;
 
 export function updateBunnies(g: Game, dt: number): void {
   g.targetCount.fill(0);
@@ -21,7 +34,9 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
   b.flash = Math.max(0, b.flash - dt);
   b.wet = Math.max(0, b.wet - dt);
   b.moving = false;
-  let speed = def.speed * bunnySpeedScale(g.round) * WEATHER[g.weather].bunnySpeed * (b.wet > 0 ? 0.5 : 1);
+  const weather = def.winter ? Math.max(1, WEATHER[g.weather].bunnySpeed) : WEATHER[g.weather].bunnySpeed;
+  let speed = def.speed * bunnySpeedScale(g.round) * weather * (b.wet > 0 ? 0.5 : 1);
+  if (def.digger && digUp(g, b, dt)) return; // up out of its tunnel, looking around
   if (g.phase === 'sundown') {
     speed *= 1.5;
     if (b.state === 'chew') b.resume = 'flee';
@@ -42,8 +57,8 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
   switch (b.state) {
     case 'seek': {
       b.repath -= dt;
-      const crop = b.target >= 0 ? g.tiles[b.target].crop : null;
-      if (b.repath <= 0 || b.epoch !== g.pathEpoch || !crop || crop.hp <= 0) {
+      const meal = food(g, b.target);
+      if (b.repath <= 0 || b.epoch !== g.pathEpoch || !meal || meal.hp <= 0) {
         chooseTarget(g, b);
         if (b.state !== 'seek') break;
       }
@@ -56,10 +71,32 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
     }
     case 'eat': {
       const crop = b.target >= 0 ? g.tiles[b.target].crop : null;
+      const decoy = !crop && b.target >= 0 && g.tiles[b.target].structure?.kind === 'decoy' ? g.tiles[b.target].structure : null;
       const far = Math.hypot(tileX(b.target) + 0.5 - b.x, tileY(b.target) + 0.5 - b.y) > 0.7;
-      if (!crop || crop.hp <= 0 || far) {
+      if (((!crop || crop.hp <= 0) && (!decoy || decoy.hp <= 0)) || far) {
         b.state = 'seek';
         b.repath = 0;
+        break;
+      }
+      if (decoy) {
+        // gnawing on painted wood: it wears the decoy down, but nobody gets fed
+        const bite = Math.min(def.biteRate * dt, decoy.hp);
+        decoy.hp -= bite;
+        decoy.shake = 0.1;
+        b.eaten += bite;
+        b.facing = tileX(b.target) + 0.5 >= b.x ? 1 : -1;
+        if (decoy.hp <= 0.001) g.destroyStructure(b.target);
+        if (b.eaten >= def.appetite) startFlee(g, b);
+        break;
+      }
+      if (!crop) break;
+      if (def.thief) {
+        // a Bandit doesn't nibble: it pulls up the whole plant and runs
+        b.carry = { crop: { ...crop, shake: 0, fresh: false }, from: b.target };
+        g.tiles[b.target].crop = null;
+        b.fed = true;
+        g.emit({ t: 'steal', x: b.x, y: b.y, kind: crop.kind });
+        startFlee(g, b);
         break;
       }
       const bite = Math.min(def.biteRate * dt, crop.hp);
@@ -89,6 +126,12 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
       s.hp -= def.chewRate * dt;
       s.shake = 0.1;
       b.facing = cx >= b.x ? 1 : -1;
+      const shock = defenseStats(s.kind, s.level).shock;
+      if (shock > 0) {
+        g.damageBunny(b, shock * dt, 'shock');
+        if (g.rng() < dt * 3) g.emit({ t: 'zap', x: (cx + b.x) / 2, y: (cy + b.y) / 2 });
+        if (b.dead) break;
+      }
       b.tick -= dt;
       if (b.tick <= 0) {
         g.emit({ t: 'chew', x: (cx + b.x) / 2, y: (cy + b.y) / 2 });
@@ -135,8 +178,7 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
       if (b.x < -0.7 || b.y < -0.7 || b.x > COLS + 0.7 || b.y > ROWS + 0.7) {
         b.gone = true;
         if (g.phase === 'round' || g.phase === 'sundown') {
-          if (b.fed) g.roundStats.escapedFed++;
-          else g.roundStats.escapedHungry++;
+          g.escaped(b);
           g.emit({ t: 'escape', x: b.x, y: b.y, fed: b.fed });
         }
       }
@@ -161,25 +203,70 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
     }
   }
   if (b.moving) b.hop += dt * (1.4 + speed * 0.9);
+  if (def.brood && g.phase === 'round') layBrood(g, b, def.brood, dt);
+}
+
+/**
+ * A Burrower underground pokes its head up every few seconds to sniff the air, and anything that knocks it
+ * out of the ground (a thumper, a splash, a shot at its mound) leaves it up and dazed for a moment.
+ * Returns true while it's up and standing still.
+ */
+function digUp(g: Game, b: Bunny, dt: number): boolean {
+  if (b.popped > 0) {
+    b.popped = Math.max(0, b.popped - dt);
+    return b.state === 'seek' || b.state === 'flee' || b.state === 'exit';
+  }
+  if (b.state === 'seek' && g.phase === 'round') {
+    b.peek -= dt;
+    if (b.peek <= 0) {
+      b.peek = PEEK.every + g.rng() * PEEK.jitter;
+      b.popped = PEEK.stay;
+    }
+  }
+  return false;
+}
+
+/** The Bunny Queen sends a Burrower down into the ground every few seconds while she's out foraging. */
+function layBrood(g: Game, b: Bunny, every: number, dt: number): void {
+  if (b.broodCount >= QUEEN_BROOD_MAX || (b.state !== 'seek' && b.state !== 'eat' && b.state !== 'chew')) return;
+  b.brood += dt;
+  if (b.brood < every) return;
+  b.brood = 0;
+  b.broodCount++;
+  g.spawnAt('digger', b.x, b.y);
+  g.emit({ t: 'brood', x: b.x, y: b.y });
+}
+
+/** A ninja's dodge: a quick hop to one side. */
+export function sidestep(g: Game, b: Bunny): void {
+  tryMove(g, b, 0, g.rng() < 0.5 ? -0.45 : 0.45);
 }
 
 /** Pick the most tempting reachable crop and plan a path to it. */
 function chooseTarget(g: Game, b: Bunny): void {
   const def = BUNNIES[b.kind];
   const start = tileAt(b.x, b.y);
-  const field = def.digger ? g.field.run(start, g.costDig, g.solidDig) : g.field.run(start, g.costWalk, g.solidWalk);
+  const field = ignoresWalls(b) ? g.field.run(start, g.costDig, g.solidDig) : g.field.run(start, g.costWalk, g.solidWalk);
   b.epoch = g.pathEpoch;
   b.repath = 1.4 + g.rng() * 0.6;
   let best = -1;
   let bestScore = Infinity;
   for (let i = 0; i < N; i++) {
     const c = g.tiles[i].crop;
-    if (!c || c.hp <= 0) continue;
+    const s = g.tiles[i].structure;
+    let want: number;
+    if (c && c.hp > 0) {
+      const cd = CROPS[c.kind];
+      const ripeness = Math.min(1, c.growth / cd.growTime);
+      // a Bandit only really wants something ready to carry off
+      want = def.thief ? cd.attract * (ripeness >= 1 ? 3 : 0.1 + ripeness * 0.3) : cd.attract * (0.45 + 0.55 * ripeness);
+    } else if (s?.kind === 'decoy' && s.hp > 0 && !def.thief && !def.boss) {
+      // a decoy only pulls in bunnies close enough to see it
+      if (Math.hypot(tileX(i) + 0.5 - b.x, tileY(i) + 0.5 - b.y) > defenseStats('decoy', s.level).radius) continue;
+      want = DECOY_APPEAL;
+    } else continue;
     const d = field.dist[i];
     if (d === Infinity) continue;
-    const cd = CROPS[c.kind];
-    const ripeness = Math.min(1, c.growth / cd.growTime);
-    const want = cd.attract * (0.45 + 0.55 * ripeness);
     const mine = b.target === i;
     const crowd = g.targetCount[i] - (mine ? 1 : 0);
     const score = (d + 2) / want + crowd * 3 + g.rng() * 2 - (mine ? 1.5 : 0);
@@ -210,7 +297,6 @@ export function startFlee(g: Game, b: Bunny): void {
 
 /** Head for the nearest burrow, or any map edge if that's much closer. */
 function planFlee(g: Game, b: Bunny): void {
-  const def = BUNNIES[b.kind];
   const start = tileAt(b.x, b.y);
   b.epoch = g.pathEpoch;
   b.pathIdx = 0;
@@ -218,7 +304,7 @@ function planFlee(g: Game, b: Bunny): void {
     b.path = [];
     return;
   }
-  const field = def.digger ? g.field.run(start, g.costDig, g.solidDig) : g.field.run(start, g.costWalk, g.solidWalk);
+  const field = ignoresWalls(b) ? g.field.run(start, g.costDig, g.solidDig) : g.field.run(start, g.costWalk, g.solidWalk);
   let best = -1;
   let bestD = Infinity;
   const consider = (i: number, penalty: number) => {
@@ -254,7 +340,7 @@ function followPath(g: Game, b: Bunny, speed: number, dt: number): boolean {
   const d = Math.hypot(dx, dy);
   if (Math.abs(dx) > 0.02) b.facing = dx > 0 ? 1 : -1;
   const s = g.tiles[next].structure;
-  const wall = !BUNNIES[b.kind].digger && s !== null && DEFENSES[s.kind].blocks;
+  const wall = !ignoresWalls(b) && s !== null && DEFENSES[s.kind].blocks;
   const step = speed * dt;
   if (wall) {
     if (d > CHEW_REACH) {
@@ -290,7 +376,7 @@ function canStand(g: Game, b: Bunny, x: number, y: number, from: number): boolea
   const i = idx(Math.floor(x), Math.floor(y));
   if (i === from) return true;
   if (OBSTACLE[i]) return false;
-  if (BUNNIES[b.kind].digger) return true;
+  if (ignoresWalls(b)) return true;
   const s = g.tiles[i].structure;
   return !(s && DEFENSES[s.kind].blocks);
 }

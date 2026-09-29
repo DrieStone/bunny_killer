@@ -1,7 +1,8 @@
 // Draws the farm: a textured ground baked once per layout, y-sorted sprites with soft shadows,
 // particles, time-of-day lighting, and a little ambient life. World units are 32px tiles.
 import {
-  BUNNIES, COLS, CROPS, DEFENSES, defenseStats, MAX_LEVEL, ROUND_SECONDS, ROWS, type Season, SLING_LEVELS, TILE,
+  BUNNIES, COLS, CROPS, DEFENSES, defenseStats, LOT_COUNT, lotPrice, MAX_LEVEL, ROUND_SECONDS, ROWS, type Season, SMOKE_BOMB, TILE, WEAPONS,
+  weaponStats,
   upgradeCost, WORLD_H, WORLD_W,
 } from '../config';
 import type { Classic, ClassicEvent } from '../classic';
@@ -9,11 +10,15 @@ import { CLASSIC_RELOAD, CLASSIC_SECONDS } from '../classic';
 import type { Game } from '../game';
 import { hashSeed } from '../rng';
 import type { Bunny, Dog, GameEvent, ShopItem, Structure } from '../types';
-import { CRATER, HOUSE, idx, inMap, inRect, plotRect, SCENERY, type Scenery, tileX, tileY } from '../world';
+import { CRATER, idx, inCrater, inMap, lotOfTile, lotRect, SCENERY, type Scenery, tileX, tileY } from '../world';
 import { BUNNY_COLORS } from './palette';
 import { dottedCircle, Particles, pixelDisc, pixelLine } from './particles';
-import { drawText, OUTLINE, textWidth } from './pixels';
-import { forSeason, type Img, sprites } from './sprites';
+import { drawText, OUTLINE, PixelGrid, textWidth } from './pixels';
+import { menuBunny } from './icons';
+import { type BunnyArt, forSeason, type Img, sprites } from './sprites';
+
+let tagIcon: Img | null = null;
+const menuBunnyIcon = (): Img => (tagIcon ??= menuBunny());
 
 export interface View {
   mouseX: number; // world pixels
@@ -21,7 +26,6 @@ export interface View {
   mouseIn: boolean;
   hoverTile: number; // -1 when off the map
   selected: ShopItem | null;
-  previewExpand: boolean;
 }
 
 interface Drawable {
@@ -30,21 +34,28 @@ interface Drawable {
 }
 
 const T = TILE;
-const rand = (a: number, b: number, n: number) => hashSeed(a, b, n) / 4294967296;
+const SMOKE = ['#7c7c86', '#8e8e98', '#a4a4ae', '#b8b8c2']; // smoke-bomb smoke, darkest to lightest
+/** Deterministic noise in [0,1). hashSeed alone leaves streaks down the columns, so mix it well. */
+function rand(a: number, b: number, n: number): number {
+  let h = hashSeed(a, b, n);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
 // ---------------------------------------------------------------- palette for the ground
 
+// close tones, so the ground stays quiet and everything standing on it reads
 const GRASS_BY_SEASON: Record<Season, string[]> = {
-  spring: ['#4f8f35', '#5fa03c', '#6fb244', '#80c24e', '#93d25a'],
-  summer: ['#58882a', '#6a9c30', '#7eb03a', '#95c246', '#aed455'],
-  fall: ['#6a6f2c', '#7c8233', '#93933d', '#a9a248', '#c0ae56'],
-  winter: ['#b9c8d8', '#cdd9e6', '#dde6f0', '#ebf1f7', '#f8fbfd'],
+  spring: ['#5a9a3a', '#64a640', '#6eb045', '#79ba4b', '#86c653'],
+  summer: ['#63922d', '#6e9f32', '#7aab38', '#87b73f', '#96c448'],
+  fall: ['#767a31', '#818637', '#8e913c', '#9b9b42', '#aaa64a'],
+  winter: ['#c6d3e1', '#d2dde9', '#dde6f0', '#e8eff6', '#f3f7fb'],
 };
 const LEAVES = ['#e0892e', '#c9562a', '#f2c14e', '#a8412a'];
 const BLADE_DARK = '#3f7a2b';
 const BLADE_LIGHT = '#a9e06a';
-const SOIL = { hi: '#a86f42', body: '#8d5835', mid: '#7a4a2c', furrow: '#5d361f', deep: '#4a2a18', clod: '#b47a4a' };
-const PATH = ['#c9a36f', '#b98f5c', '#a67c4c', '#d8b884'];
+const SOIL = { hi: '#86593a', body: '#744c31', mid: '#69442b', furrow: '#573823', deep: '#442b1a', clod: '#8f6443' };
 const FLOWERS = ['#ffffff', '#ffe066', '#ff9ec4', '#c7a6ff', '#8fd3ff'];
 
 /** Smooth value noise in [0,1], deterministic. */
@@ -74,16 +85,23 @@ function hexRGB(h: string): [number, number, number] {
 // ---------------------------------------------------------------- renderer
 
 export class Renderer {
-  readonly canvas: HTMLCanvasElement;
+  readonly canvas: HTMLCanvasElement; // the one on the page: a whole-number multiple of the world
+  private world: HTMLCanvasElement; // where everything is drawn, one pixel per art pixel
   private ctx: CanvasRenderingContext2D;
+  private out: CanvasRenderingContext2D;
+  zoom = 1;
   private bg: HTMLCanvasElement | null = null;
   private bgKey = '';
+  private meadow: HTMLCanvasElement | null = null; // the grass layer, one per season
+  private meadowKey = '';
+  private soilTiles: HTMLCanvasElement[] = [];
   private season: Season = 'spring';
   private weatherFx: { x: number; y: number; v: number; s: number; p: number }[] = [];
   private fogPhase = 0;
   readonly fx = new Particles();
   private clock = 0;
   private dusk = 0;
+  private night = 0; // 1 during The Last Night
   private clouds = Array.from({ length: 4 }, (_, i) => ({
     x: rand(i, 1, 5) * WORLD_W, y: rand(i, 2, 5) * WORLD_H, r: 90 + rand(i, 3, 5) * 90, v: 6 + rand(i, 4, 5) * 6,
   }));
@@ -91,14 +109,30 @@ export class Renderer {
     x: rand(i, 7, 9) * WORLD_W, y: rand(i, 8, 9) * WORLD_H, t: rand(i, 9, 9) * 10, c: FLOWERS[i % FLOWERS.length],
     vx: (rand(i, 10, 9) - 0.5) * 30, vy: (rand(i, 11, 9) - 0.5) * 20,
   }));
-  private smokeTimer = 0;
+  private rest = { x: -99, y: -99, since: 0 }; // where the mouse settled, for the hover label
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    canvas.width = WORLD_W;
-    canvas.height = WORLD_H;
-    this.ctx = canvas.getContext('2d')!;
+    this.world = document.createElement('canvas');
+    this.world.width = WORLD_W;
+    this.world.height = WORLD_H;
+    this.ctx = this.world.getContext('2d')!;
     this.ctx.imageSmoothingEnabled = false;
+    this.out = canvas.getContext('2d', { alpha: false })!;
+    this.setZoom(1);
+  }
+
+  /** Size the page canvas so every art pixel becomes a `zoom` x `zoom` block of device pixels. */
+  setZoom(zoom: number): void {
+    this.zoom = zoom;
+    this.canvas.width = WORLD_W * zoom;
+    this.canvas.height = WORLD_H * zoom;
+  }
+
+  /** Copy the finished frame to the page, blocky. */
+  private present(): void {
+    this.out.imageSmoothingEnabled = false;
+    this.out.drawImage(this.world, 0, 0, this.canvas.width, this.canvas.height);
   }
 
   // ------------------------------------------------------------ events -> effects
@@ -128,12 +162,75 @@ export class Renderer {
         case 'hit':
           fx.burst(x, y - 10, 7, ['#ffffff', '#ffe98a'], 110, { grav: 0, life: 0.22, size: 2 });
           break;
-        case 'sling':
-          fx.streak(WORLD_W / 2, WORLD_H + 4, x, y, '#f4ecd8', 2);
-          if (!e.hit) {
-            fx.burst(x, y, 7, ['#a0703f', '#d0a878'], 70, { life: 0.35, size: 2 });
-            fx.puff(x, y, 4, '#e8dcc4', 0.3);
+        case 'fire':
+          if (e.weapon === 'sling' || e.weapon === 'pellet') {
+            // a pebble (or a pellet) whips in from the porch
+            fx.streak(WORLD_W / 2, WORLD_H + 4, x, y, e.weapon === 'sling' ? '#f4ecd8' : '#ffe98a', e.weapon === 'sling' ? 2 : 1);
+            if (!e.hit) {
+              fx.burst(x, y, e.weapon === 'sling' ? 7 : 3, ['#a0703f', '#d0a878'], 70, { life: 0.3, size: e.weapon === 'sling' ? 2 : 1 });
+              if (e.weapon === 'sling') fx.puff(x, y, 4, '#e8dcc4', 0.3);
+            }
+          } else {
+            // a thump from the porch as the potato or firework goes up
+            for (let i = 0; i < 4; i++) fx.puff(WORLD_W / 2, WORLD_H - 6, 6, e.weapon === 'rocket' ? '#fff0c0' : '#e8dcc4', 0.4);
           }
+          break;
+        case 'blast':
+          if (e.weapon === 'spud') {
+            fx.burst(x, y, 22, ['#c8964a', '#e8c890', '#8a5a2a', '#fff6d8'], 150, { grav: 160, life: 0.55, size: 2 });
+            for (let i = 0; i < 5; i++) fx.puff(x, y + 2, 7, '#d8c8a8', 0.5);
+            fx.ring(x, y, e.r * T, '#e8c890', 0.35);
+            fx.text(x, y - 22, 'SPLAT', '#fff0c0', 0.6);
+          } else {
+            // a firework: a bright starburst in three colors, sparks falling
+            const colors = [['#ff5a5a', '#ffd84a', '#ffffff'], ['#5ad0ff', '#c8a0ff', '#ffffff'], ['#7aff6a', '#ffd84a', '#ffffff']][
+              Math.floor(Math.random() * 3)];
+            fx.burst(x, y - 6, 60, colors, 260 * Math.min(1.4, e.r / 1.4), { grav: 70, life: 0.9, size: 2, drag: 2.5 });
+            fx.ring(x, y - 6, e.r * T, colors[0], 0.45);
+            for (let i = 0; i < 12; i++) fx.add({ kind: 'sparkle', x: x + (Math.random() - 0.5) * e.r * T * 1.4, y: y - 6 + (Math.random() - 0.5) * e.r * T, life: 0.6, color: '#ffffff' });
+            fx.text(x, y - 34, 'BOOM!', colors[1], 0.8);
+          }
+          break;
+        case 'clang':
+          fx.burst(x, y - 20, 9, ['#ffffff', '#fff6a0', '#cdd4de'], 150, { grav: 60, life: 0.3, size: 1 });
+          fx.text(x, y - 36, 'CLANG', '#cdd4de', 0.6);
+          break;
+        case 'potOff':
+          // the pot goes spinning off
+          fx.add({ x, y: y - 20, vx: (Math.random() < 0.5 ? -1 : 1) * 70, vy: -120, grav: 320, size: 5, color: '#8f98a6', life: 0.9 });
+          break;
+        case 'thunk':
+          fx.burst(x, y + 4, 12, ['#a0703f', '#6b4428', '#d0a878'], 110, { life: 0.4, size: 2 });
+          break;
+        case 'thump':
+          fx.ring(x, y + 6, e.r * T, '#d8c8a8', 0.4);
+          for (let i = 0; i < 6; i++) fx.puff(x + (Math.random() - 0.5) * 20, y + 12, 6, '#d8c8a8', 0.45);
+          break;
+        case 'sting':
+          for (let i = 0; i < 4; i++) {
+            fx.add({ kind: 'dot', x: x + (Math.random() - 0.5) * 20, y: y - 14 + (Math.random() - 0.5) * 14, color: i % 2 ? '#1e1e28' : '#ffd84a', life: 0.35, size: 2 });
+          }
+          fx.text(x, y - 34, 'BZZT', '#ffd84a', 0.5);
+          break;
+        case 'steal':
+          fx.text(x, y - 36, 'YOINK!', '#ff9a6a', 0.9);
+          fx.burst(x, y, 10, ['#a0703f', '#6b4428'], 90, { life: 0.4, size: 2 });
+          break;
+        case 'drop':
+          fx.text(x, y - 30, 'SAVED!', '#7aff6a', 1);
+          for (let i = 0; i < 6; i++) fx.add({ kind: 'sparkle', x: x + (Math.random() - 0.5) * 20, y: y - 10 - Math.random() * 14, life: 0.5, color: '#ffffff' });
+          break;
+        case 'till':
+          fx.burst(x, y + 2, 10, ['#8d5835', '#5d361f', '#b47a4a'], 80, { life: 0.4, size: 2 });
+          break;
+        case 'buyLand':
+          fx.text(x, y - 12, 'SOLD!', '#ffe24a', 1.2);
+          for (let n = 0; n < 16; n++) {
+            this.fx.add({ kind: 'sparkle', x: x + (Math.random() - 0.5) * T * 4, y: y + (Math.random() - 0.5) * T * 4, life: 0.5 + Math.random() * 0.4, color: '#ffffff' });
+          }
+          break;
+        case 'zap':
+          fx.burst(x, y - 8, 6, ['#bfe6ff', '#ffffff', '#fff6a0'], 120, { grav: 0, life: 0.2, size: 1 });
           break;
         case 'snap':
           fx.burst(x, y - 4, 10, ['#ffffff', '#c9d6e6'], 120, { grav: 0, life: 0.25, size: 2 });
@@ -189,6 +286,35 @@ export class Renderer {
         case 'dig':
           fx.burst(x, y, 9, ['#a0703f', '#6b4428'], 80, { life: 0.4, size: 2 });
           break;
+        case 'dodge':
+          for (let i = 0; i < 5; i++) fx.puff(x, y - 8, 4, '#e8e8f0', 0.3);
+          fx.text(x, y - 34, 'DODGE', '#d0d4ff', 0.7);
+          break;
+        case 'brood':
+          fx.burst(x, y, 14, ['#a0703f', '#6b4428', '#c2a8ee'], 90, { life: 0.5, size: 2 });
+          break;
+        case 'smoke': {
+          // the bomb goes in with a whump, and grey smoke boils up out of the hole
+          const cy = y - 6;
+          fx.ring(x, cy, 56, '#c8c8d0', 0.6);
+          for (let i = 0; i < 16; i++) {
+            fx.add({
+              kind: 'puff', x: x + (Math.random() - 0.5) * 30, y: cy + (Math.random() - 0.5) * 10,
+              vx: (Math.random() - 0.5) * 50, vy: -20 - Math.random() * 40, size: 7 + Math.random() * 6,
+              color: SMOKE[i % SMOKE.length], life: 1 + Math.random() * 0.6, drag: 1.5,
+            });
+          }
+          fx.text(x, cy - 34, 'FWOOMP', '#e0e0e8', 1.1);
+          break;
+        }
+        case 'project': {
+          const cx = (CRATER.x + 1) * T;
+          const cy = (CRATER.y + 1) * T - 6;
+          fx.burst(cx, cy, 50, ['#9aa3b0', '#c79a6a', '#9dff6b'], 170, { grav: 90, life: 1, size: 2 });
+          for (let i = 0; i < 10; i++) fx.puff(cx, cy + 8, 9, '#d8cbb0', 0.8);
+          fx.ring(cx, cy, 70, '#9dff6b', 0.7);
+          break;
+        }
         default:
           break;
       }
@@ -203,8 +329,8 @@ export class Renderer {
     const ctx = this.ctx;
     const title = g.phase === 'title';
     this.season = title ? 'spring' : g.season;
-    const key = `${g.plotLevel}:${this.season}`;
-    if (!this.bg || this.bgKey !== key) this.buildBackground(g.plotLevel);
+    const key = `${title ? 'title' : g.tillEpoch}:${this.season}`;
+    if (!this.bg || this.bgKey !== key) this.buildBackground(title ? null : g.tilled, key);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.bg!, 0, 0);
@@ -216,6 +342,7 @@ export class Renderer {
     const list: Drawable[] = [];
     const shadows: [number, number, number][] = [];
     this.collectScenery(list, shadows);
+    if (!title) this.collectCraterWorks(g, list);
     this.collectTiles(g, list, shadows);
     for (const b of g.bunnies) this.collectBunny(g, b, list, shadows);
     for (const d of g.dogs) this.collectDog(d, list, shadows);
@@ -224,67 +351,118 @@ export class Renderer {
     list.sort((p, q) => p.y - q.y);
     for (const d of list) d.draw();
 
-    this.drawCraterGlow();
+    this.drawCraterGlow(title ? 0 : g.project);
+    if (!title) this.smokeCrater(g);
     for (const p of g.projectiles) this.drawPebble(p.x * T, p.y * T);
+    this.drawShells(g);
+    this.drawHose(g);
     this.ambient(g, dt);
     this.fx.draw(ctx);
     this.drawBars(g);
     this.drawLevels(g);
-    if (g.phase === 'planning') this.drawPlanningOverlay(g, view);
+    if (g.phase === 'planning') {
+      this.drawLand(g, view);
+      this.drawBurrowTags(g);
+      this.drawPlanningOverlay(g, view);
+    }
     this.drawWeather(g, dt);
-    this.drawLight(g, dt);
+    this.drawLight(g, view, dt);
     if ((g.phase === 'round' || g.phase === 'sundown') && view.mouseIn) this.drawCrosshair(g, view);
+    if (!title) this.drawHoverLabel(g, view);
+    this.present();
   }
 
   /** Blank the effects between games. */
   reset(): void {
     this.fx.clear();
     this.dusk = 0;
+    this.night = 0;
   }
 
   // ------------------------------------------------------------ the ground
 
-  private buildBackground(level: number): void {
+  /**
+   * The ground: the season's meadow, with tilled soil stamped onto every tilled tile. The meadow is cached,
+   * so tilling a tile (which rebuilds this) stays quick even while you drag the hoe along a row.
+   */
+  private buildBackground(tilled: Uint8Array | null, key: string): void {
     const c = document.createElement('canvas');
     c.width = WORLD_W;
     c.height = WORLD_H;
     const ctx = c.getContext('2d')!;
-    const plot = level >= 0 ? plotRect(level) : null;
+    ctx.drawImage(this.meadowFor(this.season), 0, 0);
+    if (tilled) {
+      const winter = this.season === 'winter';
+      if (this.soilTiles.length === 0) this.soilTiles = [0, 1, 2, 3].map((v) => this.soilTile(v));
+      const soil = (x: number, y: number) => inMap(x, y) && tilled[idx(x, y)] === 1;
+      for (let i = 0; i < tilled.length; i++) {
+        if (!tilled[i]) continue;
+        const tx = tileX(i);
+        const ty = tileY(i);
+        const px = tx * T;
+        const py = ty * T;
+        ctx.drawImage(this.soilTiles[hashSeed(tx, ty, 5) % 4], px, py);
+        // a darker rim wherever the soil meets grass
+        const rim = (x: number, y: number, w: number, h: number, ox: number, oy: number) => {
+          ctx.fillStyle = SOIL.deep;
+          ctx.fillRect(x, y, w, h);
+          ctx.fillStyle = SOIL.furrow;
+          ctx.fillRect(x + ox, y + oy, w, h);
+        };
+        if (!soil(tx, ty - 1)) rim(px, py, T, 2, 0, 2);
+        if (!soil(tx, ty + 1)) rim(px, py + T - 2, T, 2, 0, -2);
+        if (!soil(tx - 1, ty)) rim(px, py, 2, T, 2, 0);
+        if (!soil(tx + 1, ty)) rim(px + T - 2, py, 2, T, -2, 0);
+        if (winter) {
+          // frost on the furrow tops
+          for (let n = 0; n < 12; n++) {
+            ctx.fillStyle = n % 3 ? '#e8f0f8' : '#ffffff';
+            ctx.fillRect(px + Math.floor(rand(i, n, 61) * (T - 2)), py + Math.floor(rand(i, n, 62) * 4) * 8, 2, 1);
+          }
+        }
+      }
+      // grass spilling over the soil's edges, so the fields sit in the meadow instead of on it
+      if (!winter) {
+        for (let i = 0; i < tilled.length; i++) {
+          if (!tilled[i]) continue;
+          const px = tileX(i) * T;
+          const py = tileY(i) * T;
+          for (let k = 0; k < T; k += 3) {
+            if (!soil(tileX(i), tileY(i) - 1) && rand(px + k, py, 41) < 0.7) this.tuft(ctx, px + k, py + 1, px + k);
+            if (!soil(tileX(i), tileY(i) + 1) && rand(px + k, py, 42) < 0.5) this.tuft(ctx, px + k, py + T + 3, px + k + 7);
+            if (!soil(tileX(i) - 1, tileY(i)) && rand(px, py + k, 43) < 0.5) this.tuft(ctx, px - 1, py + k + 3, py + k);
+            if (!soil(tileX(i) + 1, tileY(i)) && rand(px, py + k, 44) < 0.5) this.tuft(ctx, px + T + 1, py + k + 3, py + k + 3);
+          }
+        }
+      }
+    }
+    this.bg = c;
+    this.bgKey = key;
+  }
+
+  /** The meadow for a season: soft patches of grass, tufts, clover and flowers (leaves in fall, snow in winter). */
+  private meadowFor(season: Season): HTMLCanvasElement {
+    if (this.meadow && this.meadowKey === season) return this.meadow;
+    const c = document.createElement('canvas');
+    c.width = WORLD_W;
+    c.height = WORLD_H;
+    const ctx = c.getContext('2d')!;
     const img = ctx.createImageData(WORLD_W, WORLD_H);
     const data = img.data;
-    const season = this.season;
     const grass = GRASS_BY_SEASON[season].map(hexRGB);
     const winter = season === 'winter';
-    const path = PATH.map(hexRGB);
-    const pathDist = this.pathField(plot);
-
     for (let y = 0; y < WORLD_H; y++) {
       for (let x = 0; x < WORLD_W; x++) {
         const o = (y * WORLD_W + x) * 4;
-        const tx = (x / T) | 0;
-        const ty = (y / T) | 0;
-        let col: [number, number, number];
-        if (plot && inRect(plot, tx, ty)) {
-          col = hexRGB(this.soilColor(x, y, tx, ty, plot));
-        } else {
-          // big soft patches of lighter and darker grass, dithered into 5 tones
-          const v = valueNoise(x, y, 120, 1) * 0.55 + valueNoise(x, y, 26, 2) * 0.3 + valueNoise(x, y, 7, 3) * 0.15;
-          const d = BAYER[(y & 3) * 4 + (x & 3)] * 0.14;
-          const k = Math.max(0, Math.min(4, Math.floor((v + d - 0.18) * 7.2)));
-          col = grass[k];
-          // the dirt path from the house to the plot
-          const pd = pathDist(x, y);
-          if (pd < 11 + valueNoise(x, y, 5, 4) * 4) {
-            const pv = valueNoise(x, y, 9, 5) + BAYER[(y & 3) * 4 + (x & 3)] * 0.3;
-            col = path[pv > 0.72 ? 3 : pv > 0.5 ? 0 : pv > 0.3 ? 1 : 2];
-            if (pd > 9.5) col = path[2];
-            if (winter && pv > 0.55) col = [214, 222, 232]; // packed snow on the path
-          } else if (winter) {
-            // thin spots where the grass shows through, feathered with dither instead of hard-edged
-            const thin = valueNoise(x, y, 11, 6) * 0.7 + valueNoise(x, y, 4, 7) * 0.3 + BAYER[(y & 3) * 4 + (x & 3)] * 0.18;
-            if (thin < 0.2) col = [118, 146, 104];
-            else if (thin < 0.25) col = [165, 186, 160];
-          }
+        // big soft patches of lighter and darker grass, dithered into 5 tones
+        const v = valueNoise(x, y, 110, 1) * 0.65 + valueNoise(x, y, 34, 2) * 0.35;
+        const d = BAYER[(y & 3) * 4 + (x & 3)] * 0.07;
+        let col = grass[Math.max(0, Math.min(4, Math.floor((v + d - 0.2) * 6.2) + 1))];
+        if (winter) {
+          // thin spots where the grass shows through, feathered with dither instead of hard-edged
+          const thin = valueNoise(x, y, 30, 6) * 0.75 + valueNoise(x, y, 9, 7) * 0.25 + BAYER[(y & 3) * 4 + (x & 3)] * 0.1;
+          if (thin < 0.17) col = [128, 154, 112];
+          else if (thin < 0.21) col = [172, 190, 168];
         }
         data[o] = col[0];
         data[o + 1] = col[1];
@@ -293,108 +471,45 @@ export class Renderer {
       }
     }
     ctx.putImageData(img, 0, 0);
-
-    // grass tufts, clover and wildflowers on top of the texture (autumn leaves, or bare snow in winter)
-    for (let n = 0; n < (winter ? 260 : 950); n++) {
+    for (let n = 0; n < (winter ? 140 : 380); n++) {
       const x = Math.floor(rand(n, 1, 21) * WORLD_W);
       const y = Math.floor(rand(n, 2, 21) * WORLD_H);
-      const tx = (x / T) | 0;
-      const ty = (y / T) | 0;
-      if (plot && inRect({ x0: plot.x0, y0: plot.y0, x1: plot.x1, y1: plot.y1 + 1 }, tx, ty)) continue;
-      if (pathDist(x, y) < 12) continue;
       const r = rand(n, 3, 21);
       if (winter) {
         ctx.fillStyle = r < 0.5 ? '#9fb0a0' : '#c3d0dc';
         ctx.fillRect(x, y - 2, 1, 2);
         ctx.fillRect(x + 2, y - 1, 1, 1);
-      } else if (r < 0.66) this.tuft(ctx, x, y, n);
-      else if (r < 0.9) this.clover(ctx, x, y);
+      } else if (r < 0.62) this.tuft(ctx, x, y, n);
+      else if (r < 0.82) this.clover(ctx, x, y);
       else if (season === 'fall') {
         ctx.fillStyle = LEAVES[Math.floor(rand(n, 4, 21) * LEAVES.length)];
         ctx.fillRect(x, y, 2, 1);
         ctx.fillRect(x + 1, y - 1, 1, 1);
       } else this.flower(ctx, x, y, FLOWERS[Math.floor(rand(n, 4, 21) * FLOWERS.length)]);
     }
-    // pebbles on the path
-    for (let n = 0; n < 60; n++) {
-      const x = Math.floor(rand(n, 5, 22) * WORLD_W);
-      const y = Math.floor(rand(n, 6, 22) * WORLD_H);
-      if (pathDist(x, y) > 8) continue;
-      ctx.fillStyle = '#8f7a62';
-      ctx.fillRect(x, y, 2, 2);
-      ctx.fillStyle = '#d9c7a5';
-      ctx.fillRect(x, y, 1, 1);
-    }
-    if (plot) this.plotEdge(ctx, plot);
-    if (plot && winter) {
-      // frost on the furrow tops
-      for (let n = 0; n < 700; n++) {
-        const x = plot.x0 * T + Math.floor(rand(n, 8, 61) * (plot.x1 - plot.x0 + 1) * T);
-        const y = plot.y0 * T + Math.floor(rand(n, 9, 61) * (plot.y1 - plot.y0 + 1) * 4) * 8;
-        ctx.fillStyle = n % 3 ? '#e8f0f8' : '#ffffff';
-        ctx.fillRect(x, y, 2, 1);
-      }
-    }
-    this.bg = c;
-    this.bgKey = `${level}:${season}`;
-  }
-
-  /** Distance (px) to the path that runs from the farmhouse door down and across to the plot. */
-  private pathField(plot: { x0: number; y0: number; x1: number; y1: number } | null): (x: number, y: number) => number {
-    const doorX = (HOUSE.x + 2.05) * T;
-    const doorY = (HOUSE.y + HOUSE.h) * T;
-    const bendY = 6.5 * T;
-    const endX = (plot ? plot.x0 : 8) * T;
-    const endY = plot ? Math.min(Math.max(bendY + T, (plot.y0 + plot.y1 + 1) * T * 0.5), (plot.y1 + 0.5) * T) : bendY;
-    const segs: [number, number, number, number][] = [
-      [doorX, doorY, doorX, bendY],
-      [doorX, bendY, endX - 2 * T, bendY],
-      [endX - 2 * T, bendY, endX, endY],
-    ];
-    return (x, y) => {
-      let best = Infinity;
-      for (const [x0, y0, x1, y1] of segs) {
-        const dx = x1 - x0;
-        const dy = y1 - y0;
-        const len2 = dx * dx + dy * dy || 1;
-        const t = Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / len2));
-        const d = Math.hypot(x - (x0 + dx * t), y - (y0 + dy * t));
-        if (d < best) best = d;
-      }
-      return best;
-    };
-  }
-
-  private soilColor(x: number, y: number, tx: number, ty: number, plot: { x0: number; y0: number; x1: number; y1: number }): string {
-    const ly = y - ty * T;
-    const row = ly % 8; // four raised furrows per tile
-    const n = rand(x, y, 31);
-    let c = row === 0 ? SOIL.hi : row < 4 ? SOIL.body : row < 6 ? SOIL.mid : SOIL.furrow;
-    if (n < 0.05) c = SOIL.clod;
-    else if (n > 0.95) c = SOIL.deep;
-    // a darker rim where the tilled soil meets the grass
-    const edge = Math.min(x - plot.x0 * T, (plot.x1 + 1) * T - 1 - x, y - plot.y0 * T, (plot.y1 + 1) * T - 1 - y);
-    if (edge < 2) c = SOIL.deep;
-    else if (edge < 4 && row !== 0) c = SOIL.furrow;
-    void tx;
+    this.meadow = c;
+    this.meadowKey = season;
     return c;
   }
 
-  private plotEdge(ctx: CanvasRenderingContext2D, plot: { x0: number; y0: number; x1: number; y1: number }): void {
-    if (this.season === 'winter') return;
-    // grass spilling over the soil edge so the plot sits in the meadow instead of on it
-    const x0 = plot.x0 * T;
-    const y0 = plot.y0 * T;
-    const x1 = (plot.x1 + 1) * T;
-    const y1 = (plot.y1 + 1) * T;
-    for (let x = x0; x < x1; x += 3) {
-      if (rand(x, 1, 41) < 0.7) this.tuft(ctx, x, y0 + 1, x);
-      if (rand(x, 2, 41) < 0.5) this.tuft(ctx, x, y1 + 3, x + 7);
+  /** One tile of tilled soil: four raised furrows, a few clods. */
+  private soilTile(variant: number): HTMLCanvasElement {
+    const c = document.createElement('canvas');
+    c.width = T;
+    c.height = T;
+    const ctx = c.getContext('2d')!;
+    for (let y = 0; y < T; y++) {
+      const row = y % 8;
+      for (let x = 0; x < T; x++) {
+        const n = rand(x + variant * 97, y, 31);
+        let col = row === 0 ? SOIL.hi : row < 4 ? SOIL.body : row < 6 ? SOIL.mid : SOIL.furrow;
+        if (n < 0.02) col = SOIL.clod;
+        else if (n > 0.98) col = SOIL.deep;
+        ctx.fillStyle = col;
+        ctx.fillRect(x, y, 1, 1);
+      }
     }
-    for (let y = y0; y < y1; y += 3) {
-      if (rand(y, 3, 41) < 0.5) this.tuft(ctx, x0 - 1, y + 3, y);
-      if (rand(y, 4, 41) < 0.5) this.tuft(ctx, x1 + 1, y + 3, y + 3);
-    }
+    return c;
   }
 
   private tuft(ctx: CanvasRenderingContext2D, x: number, y: number, n: number): void {
@@ -435,30 +550,42 @@ export class Renderer {
 
   /** Queue a sprite drawn with its bottom-center at (x, y). */
   private put(list: Drawable[], img: Img, x: number, y: number, opts: {
-    flip?: boolean; sx?: number; sy?: number; alpha?: number; sort?: number; lift?: number;
+    flip?: boolean; alpha?: number; sort?: number; lift?: number;
   } = {}): void {
-    const { flip = false, sx = 1, sy = 1, alpha = 1, lift = 0 } = opts;
+    const { flip = false, alpha = 1, lift = 0 } = opts;
     list.push({
       y: opts.sort ?? y,
-      draw: () => this.blit(img, x, y - lift, flip, sx, sy, alpha),
+      draw: () => this.blit(img, x, y - lift, flip, alpha),
     });
   }
 
-  private blit(img: Img, x: number, y: number, flip = false, sx = 1, sy = 1, alpha = 1): void {
+  /** Sprites land on whole art pixels and are never scaled, so every pixel stays the same size. */
+  private blit(img: Img, x: number, y: number, flip = false, alpha = 1): void {
     const ctx = this.ctx;
-    const w = img.width * sx;
-    const h = img.height * sy;
+    const left = Math.round(x - img.width / 2);
+    const top = Math.round(y - img.height);
     ctx.globalAlpha = alpha;
-    if (!flip && sx === 1 && sy === 1) {
-      ctx.drawImage(img, Math.round(x - img.width / 2), Math.round(y - img.height));
+    if (!flip) {
+      ctx.drawImage(img, left, top);
     } else {
       ctx.save();
-      ctx.translate(Math.round(x), Math.round(y));
-      ctx.scale(flip ? -1 : 1, 1);
-      ctx.drawImage(img, Math.round(-w / 2), Math.round(-h), Math.round(w), Math.round(h));
+      ctx.translate(left + img.width, top);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, 0, 0);
       ctx.restore();
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** Where a hopping bunny is in its jump: which frame, and how high off the ground. */
+  private hopPose(art: BunnyArt, cycle: number, height: number): { frame: number; lift: number } {
+    if (art.squash) {
+      // one pose: crouched as it lands and takes off, stretched on the way up
+      const frame = cycle > 0.9 || cycle < 0.06 ? 1 : cycle < 0.32 ? 2 : 0;
+      return { frame, lift: frame === 1 ? 0 : Math.round(Math.sin(cycle * Math.PI) * height) };
+    }
+    const frame = Math.floor(cycle * art.frames.length) % art.frames.length;
+    return { frame, lift: frame >= 2 && frame <= 6 ? Math.round(Math.sin(((frame - 2) / 4) * Math.PI) * 6) : 0 };
   }
 
   private collectScenery(list: Drawable[], shadows: [number, number, number][]): void {
@@ -489,10 +616,8 @@ export class Renderer {
         const stage = g.cropStage(c);
         const img = stage === 0 ? sp.seed : stage === 1 ? sp.sprout : stage === 2 ? sp.crops[c.kind].young : sp.crops[c.kind].ripe;
         const shake = c.shake > 0 ? Math.round(Math.sin(this.clock * 60)) : 0;
-        // ripe crops breathe a little so the field feels alive
-        const sway = stage >= 2 ? 1 + Math.sin(this.clock * 2 + i) * 0.015 : 1;
         const hurt = c.hp < CROPS[c.kind].hp * 0.5;
-        this.put(list, img, cx + shake, by - 2, { sy: sway, sort: by - 3, alpha: hurt ? 0.85 : 1 });
+        this.put(list, img, cx + shake, by - 2, { sort: by - 3, alpha: hurt ? 0.85 : 1 });
         if (stage === 3 && Math.sin(this.clock * 2.5 + i * 1.7) > 0.985) {
           this.fx.add({ kind: 'sparkle', x: cx + (rand(i, 1, 51) - 0.5) * 18, y: by - 14 - rand(i, 2, 51) * 10, life: 0.5, color: '#ffffff' });
         }
@@ -525,25 +650,34 @@ export class Renderer {
         list.push({ y: by - 30, draw: () => this.blit(s.cd > 0 ? d.trapShut : d.trapOpen, x, by - 4) });
         return;
       case 'scarecrow': {
+        // a scare is a little jig: hops and spins, in whole pixels
         const scaring = s.anim < 0.6;
-        const wob = scaring ? Math.sin(s.anim * 40) * 0.08 : Math.sin(this.clock * 1.3 + i) * 0.015;
         shadows.push([cx + 4, by - 4, 11]);
-        this.put(list, d.scarecrow, x, by - 1, { sx: 1 + wob, sy: 1 - Math.abs(wob) * 0.5, lift: scaring ? Math.abs(Math.sin(s.anim * 20)) * 3 : 0 });
+        this.put(list, d.scarecrow, x, by - 1, {
+          flip: scaring && Math.floor(s.anim * 10) % 2 === 1,
+          lift: scaring ? Math.round(Math.abs(Math.sin(s.anim * 20)) * 3) : 0,
+        });
         return;
       }
       case 'turret': {
-        const fired = s.anim < 0.18;
+        const fired = s.anim < 0.18; // kicks back a pixel
         shadows.push([cx + 4, by - 4, 11]);
-        this.put(list, d.turret, x, by - 1, { sy: fired ? 0.9 : 1, sx: fired ? 1.06 : 1 });
+        this.put(list, d.turret, x, by - 1, { lift: fired ? -1 : 0 });
         return;
       }
       case 'sprinkler': {
-        shadows.push([cx + 2, by - 5, 9]);
-        const bob = s.anim < 0.3 ? Math.sin(s.anim * 50) * 0.06 : 0;
-        this.put(list, d.sprinkler, x, by - 3, { sy: 1 + bob });
-        if ((g.phase === 'round' || g.phase === 'sundown') && Math.random() < 0.12) {
+        // turns while the sun is up, whirls right after it soaks a bunny
+        shadows.push([cx + 1, by - 5, 10]);
+        const live = g.phase === 'round' || g.phase === 'sundown';
+        const spin = sprites().sprinklerSpin;
+        const f = live ? Math.floor(this.clock * (s.anim < 0.6 ? 18 : 6) + i) % spin.length : 0;
+        this.put(list, spin[f], x, by - 2);
+        if (live && Math.random() < 0.2) {
           const a = Math.random() * Math.PI * 2;
-          this.fx.add({ x: cx + Math.cos(a) * 8, y: by - 20, vx: Math.cos(a) * 30, vy: -30, grav: 120, color: '#8fd3ff', life: 0.4 });
+          this.fx.add({
+            x: cx + Math.cos(a) * 10, y: by - 21 + Math.sin(a) * 4, vx: Math.cos(a) * 36, vy: Math.sin(a) * 14 - 28,
+            grav: 120, color: Math.random() < 0.3 ? '#ffffff' : '#8fd3ff', life: 0.45,
+          });
         }
         return;
       }
@@ -551,12 +685,47 @@ export class Renderer {
         shadows.push([cx + 4, by - 4, 16]);
         this.put(list, d.doghouse, x, by);
         return;
+      case 'thumper': {
+        // the weight comes down with a bang, then hauls back up
+        shadows.push([cx + 2, by - 4, 11]);
+        this.put(list, s.anim < 0.3 ? d.thumperDown : d.thumperUp, x, by + 1);
+        return;
+      }
+      case 'decoy':
+        shadows.push([cx + 2, by - 3, 6]);
+        this.put(list, d.decoy, x, by - 1, { alpha: s.hp < defenseStats('decoy', s.level).hp * 0.35 ? 0.8 : 1 });
+        return;
+      case 'beehive': {
+        shadows.push([cx + 3, by - 4, 11]);
+        this.put(list, d.beehive, x, by);
+        list.push({ y: by + 0.2, draw: () => this.bees(cx, by - 14, i) });
+        return;
+      }
+    }
+  }
+
+  /** A few bees buzzing lazy loops round their hive. */
+  private bees(cx: number, cy: number, seed: number): void {
+    const ctx = this.ctx;
+    for (let k = 0; k < 4; k++) {
+      const t = this.clock * (1.3 + k * 0.4) + seed + k * 1.7;
+      const x = Math.round(cx + Math.cos(t) * (7 + k * 2) + Math.sin(t * 2.3) * 2);
+      const y = Math.round(cy + Math.sin(t * 1.3) * (4 + k) - k);
+      ctx.fillStyle = '#1e1e28';
+      ctx.fillRect(x, y, 2, 1);
+      ctx.fillStyle = '#ffd84a';
+      ctx.fillRect(x + 1, y, 1, 1);
+      if (Math.floor(this.clock * 20 + k) % 2) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x, y - 1, 1, 1);
+      }
     }
   }
 
   private collectBunny(g: Game, b: Bunny, list: Drawable[], shadows: [number, number, number][]): void {
     const def = BUNNIES[b.kind];
-    const art = sprites().bunnies[b.kind];
+    // a Pot-Head whose pot got knocked off is just a bunny
+    const art = b.kind === 'pothead' && b.armor <= 0 ? sprites().bunnies.common : sprites().bunnies[b.kind];
     let px = b.x * T;
     let py = b.y * T + 7;
     if (b.state === 'eat') {
@@ -566,7 +735,7 @@ export class Renderer {
     if (!g.isSurfaced(b)) {
       const wob = b.moving ? Math.round(Math.sin(this.clock * 22 + b.id)) : 0;
       shadows.push([px, py - 2, 9]);
-      this.put(list, sprites().mound, px + wob, py, { sy: 1 + Math.sin(this.clock * 18 + b.id) * 0.05 });
+      this.put(list, sprites().mound, px + wob, py);
       if (b.moving && Math.random() < 0.3) {
         this.fx.add({ x: px, y: py - 4, vx: (Math.random() - 0.5) * 60, vy: -40, grav: 160, color: '#a0703f', life: 0.35, size: 2 });
       }
@@ -576,28 +745,22 @@ export class Renderer {
     const flash = b.flash > 0;
     let frame = 0;
     let lift = 0;
-    let sx = 1;
-    let sy = 1;
-    const cycle = b.hop % 1;
-    if (b.state === 'eat' || b.state === 'chew') {
+    if (def.digger && b.popped > 0 && b.state !== 'eat') {
+      // up out of its tunnel: standing in its own little hole, looking around
+      this.put(list, sprites().mound, px, py + 3, { sort: py - 1 });
+      frame = Math.floor(this.clock * 3 + b.id) % 2;
+    } else if (b.state === 'eat' || b.state === 'chew') {
       frame = Math.floor(this.clock * 4 + b.id) % 2 === 0 ? art.eat[0] : art.eat[1];
-      if (art.squash) sy = Math.floor(this.clock * 4 + b.id) % 2 === 0 ? 0.94 : 1;
     } else if (b.moving) {
-      if (art.squash) {
-        // one pose, bounced: squash on landing, stretch in the air
-        const s = Math.sin(cycle * Math.PI * 2);
-        sy = 1 + s * 0.1;
-        sx = 1 - s * 0.07;
-        lift = Math.max(0, Math.sin(cycle * Math.PI)) * (def.boss ? 10 : 6);
-      } else {
-        frame = Math.floor(cycle * art.frames.length) % art.frames.length;
-        lift = frame >= 2 && frame <= 6 ? Math.sin(((frame - 2) / 4) * Math.PI) * 6 : 0;
+      ({ frame, lift } = this.hopPose(art, b.hop % 1, def.boss ? 10 : 6));
+      // a Leaper clears whatever defense it's over in one big bound
+      if (def.leaps) {
+        const s = g.tiles[idx(Math.floor(b.x), Math.floor(b.y))]?.structure;
+        if (s && DEFENSES[s.kind].blocks) lift += 12;
       }
     } else if (!art.squash) {
-      // idle: a slow breath and the occasional twitch
+      // idle: the occasional twitch
       frame = Math.sin(this.clock * 1.7 + b.id * 3) > 0.93 ? 1 : 0;
-    } else {
-      sy = 1 + Math.sin(this.clock * 2 + b.id) * 0.02;
     }
     const img = flash ? art.flash[frame] : art.frames[frame];
     const shadowW = (img.width / 2.6) * (1 - lift / 30);
@@ -605,7 +768,15 @@ export class Renderer {
     if (def.boss) {
       list.push({ y: py - 0.5, draw: () => this.bossGlow(px, py - 22) });
     }
-    this.put(list, img, px, py, { flip, sx, sy, lift });
+    // a bunny at a crop draws in front of it, so you can see who's eating
+    const sort = b.state === 'eat' ? Math.max(py, (Math.floor(b.y) + 1) * T) : py;
+    this.put(list, img, px, py, { flip, lift, sort });
+    if (b.carry) {
+      // a Bandit runs with its loot held up over its head
+      const loot = sprites().crops[b.carry.crop.kind].ripe;
+      const bob = Math.round(Math.sin(this.clock * 12 + b.id));
+      this.put(list, loot, px, py - img.height + 10 - lift + bob, { sort: sort + 0.1 });
+    }
     if (b.wet > 0) {
       list.push({
         y: py + 0.5,
@@ -617,7 +788,8 @@ export class Renderer {
       });
     }
     if (b.state === 'spooked') {
-      list.push({ y: py + 1, draw: () => drawText(this.ctx, '!', Math.round(px - 2), Math.round(py - img.height - 14 - lift), '#ffffff', '#c0392b', 2, 1) });
+      const mark = exclaim();
+      list.push({ y: py + 1, draw: () => this.ctx.drawImage(mark, Math.round(px - mark.width / 2), Math.round(py - img.height - 12 - lift)) });
     }
   }
 
@@ -678,6 +850,72 @@ export class Renderer {
     }
   }
 
+  /** Potatoes and fireworks arcing out from the porch toward where they'll land. */
+  private drawShells(g: Game): void {
+    const ctx = this.ctx;
+    for (const sh of g.shells) {
+      const t = 1 - Math.max(0, sh.t) / sh.flight; // 0 at launch, 1 on landing
+      const x0 = WORLD_W / 2;
+      const y0 = WORLD_H + 8;
+      const tx = sh.x * T;
+      const ty = sh.y * T;
+      const x = Math.round(x0 + (tx - x0) * t);
+      const y = Math.round(y0 + (ty - y0) * t - Math.sin(t * Math.PI) * (sh.weapon === 'rocket' ? 90 : 60));
+      // where it's coming down
+      ctx.globalAlpha = 0.25 + t * 0.35;
+      ctx.fillStyle = '#1c280c';
+      this.ellipse(tx, ty, 2 + t * 5, 1 + t * 2);
+      ctx.globalAlpha = 1;
+      if (sh.weapon === 'spud') {
+        ctx.fillStyle = OUTLINE;
+        ctx.fillRect(x - 3, y - 2, 7, 5);
+        ctx.fillStyle = '#c8964a';
+        ctx.fillRect(x - 2, y - 1, 5, 3);
+        ctx.fillStyle = '#e8c890';
+        ctx.fillRect(x - 2, y - 1, 2, 1);
+      } else {
+        ctx.fillStyle = OUTLINE;
+        ctx.fillRect(x - 2, y - 4, 5, 9);
+        ctx.fillStyle = '#d8322a';
+        ctx.fillRect(x - 1, y - 3, 3, 6);
+        ctx.fillStyle = '#ffd84a';
+        ctx.fillRect(x - 1, y - 4, 3, 1);
+        if (Math.random() < 0.8) this.fx.add({ kind: 'sparkle', x, y: y + 6, life: 0.3, color: Math.random() < 0.5 ? '#ffd84a' : '#ffffff' });
+      }
+    }
+  }
+
+  /** The garden hose, from the porch to wherever it's pointed, with spray flying off the end. */
+  private drawHose(g: Game): void {
+    const aim = g.hoseAim;
+    if (!aim || g.weapon !== 'hose' || (g.phase !== 'round' && g.phase !== 'sundown')) return;
+    const ctx = this.ctx;
+    const x0 = WORLD_W / 2 - 40;
+    const y0 = WORLD_H + 4;
+    const tx = aim.x * T;
+    const ty = aim.y * T;
+    const steps = Math.max(8, Math.floor(Math.hypot(tx - x0, ty - y0) / 3));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      // the stream sags a little and wobbles
+      const x = Math.round(x0 + (tx - x0) * t + Math.sin(this.clock * 30 + k) * 0.6);
+      const y = Math.round(y0 + (ty - y0) * t - Math.sin(t * Math.PI) * 18);
+      ctx.fillStyle = '#5aaee8';
+      ctx.fillRect(x - 1, y - 1, 3, 3);
+      ctx.fillStyle = k % 3 === 0 ? '#ffffff' : '#bfe6ff';
+      ctx.fillRect(x, y - 1, 1, 1);
+    }
+    const r = weaponStats('hose', g.weapons.hose).radius * T;
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.fx.add({
+        x: tx, y: ty, vx: Math.cos(a) * r * 2.2, vy: Math.sin(a) * r * 1.2 - 30, grav: 160, drag: 3,
+        color: i % 2 ? '#ffffff' : '#8fd3ff', life: 0.35,
+      });
+    }
+    if (Math.random() < 0.25) this.fx.add({ kind: 'splash', x: tx + (Math.random() - 0.5) * r, y: ty + (Math.random() - 0.5) * r * 0.6, color: '#d6e6ff', life: 0.3 });
+  }
+
   private drawPebble(x: number, y: number): void {
     const ctx = this.ctx;
     ctx.fillStyle = OUTLINE;
@@ -690,71 +928,223 @@ export class Renderer {
 
   private drawBurrows(g: Game): void {
     const ctx = this.ctx;
-    const hole = sprites().scenery.burrow;
-    const counts = new Array(g.burrows.length).fill(0);
-    for (const w of g.wave) if (w.burrow >= 0) counts[w.burrow]++;
+    const mound = sprites().scenery.burrow;
+    const planning = g.phase === 'planning';
+    const counts = g.burrowCounts();
     g.burrows.forEach((b, n) => {
       const cx = b.x * T + T / 2;
       const cy = b.y * T + T / 2;
-      this.blit(hole, cx, cy + 8);
-      ctx.fillStyle = '#1e120a';
-      ctx.fillRect(cx - 5, cy + 1, 10, 3);
-      if (g.phase !== 'planning') return;
-      // a bouncing arrow into the field, with the head count
-      const bob = Math.round(Math.sin(this.clock * 5 + n) * 3);
-      const dx = b.x === 0 ? 1 : b.x === COLS - 1 ? -1 : 0;
-      const dy = b.y === 0 ? 1 : b.y === ROWS - 1 ? -1 : 0;
-      const ax = cx + dx * (26 + bob);
-      const ay = cy + dy * (26 + bob);
-      const arrow = (col: string, grow: number) => {
-        ctx.fillStyle = col;
-        for (let k = 0; k < 9 + grow; k++) {
-          const len = Math.max(0, 9 + grow - k);
-          if (dx !== 0) ctx.fillRect(ax + dx * (k - grow), ay - len, 1, len * 2 + 1);
-          else ctx.fillRect(ax - len, ay + dy * (k - grow), len * 2 + 1, 1);
-        }
-        // the shaft
-        if (dx !== 0) ctx.fillRect(ax - dx * (8 + grow), ay - 3 - grow, 8 + grow, 7 + grow * 2);
-        else ctx.fillRect(ax - 3 - grow, ay - dy * (8 + grow), 7 + grow * 2, 8 + grow);
-      };
-      arrow(OUTLINE, 1);
-      arrow('#ff5a4a', 0);
-      const label = `${counts[n]}`;
-      const tw = textWidth(label, 3);
-      const tx = dx !== 0 ? cx + dx * 54 - (dx < 0 ? tw : 0) : cx - tw / 2;
-      const ty = dy !== 0 ? cy + dy * 54 - (dy < 0 ? 15 : 0) : cy - 7;
-      drawText(ctx, label, Math.round(tx), Math.round(ty), '#ffffff', OUTLINE, 3, 2);
+      this.blit(mound, cx, cy + 8);
+      // the way in: a dark opening in the dirt
+      ctx.fillStyle = '#3a2416';
+      this.ellipse(cx, cy + 3, 7, 4);
+      ctx.fillStyle = '#120a06';
+      this.ellipse(cx, cy + 4, 5, 2.5);
+      const left = counts[n];
+      if (left <= 0) return;
+      // somebody's home: ears poke up out of the hole now and then
+      const peek = Math.sin(this.clock * 1.8 + n * 1.7);
+      if (planning && peek > 0.2) this.ears(cx, cy + 3, Math.round((peek - 0.2) * 9));
     });
   }
 
-  private drawCraterGlow(): void {
+  /** The head-count tags go on top of everything, so trees and houses can't hide them. */
+  private drawBurrowTags(g: Game): void {
+    const counts = g.burrowCounts();
+    g.burrows.forEach((b, n) => {
+      if (counts[n] > 0) this.burrowTag(b.x, b.y, b.x * T + T / 2, b.y * T + T / 2, counts[n], n);
+    });
+  }
+
+  private ellipse(cx: number, cy: number, rx: number, ry: number): void {
+    const ctx = this.ctx;
+    const r = Math.ceil(ry);
+    for (let dy = -r; dy <= r; dy++) {
+      const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (dy * dy) / (ry * ry))));
+      if (w > 0) ctx.fillRect(Math.round(cx) - w, Math.round(cy) + dy, w * 2, 1);
+    }
+  }
+
+  /** Two bunny ears rising `h` pixels out of a hole. */
+  private ears(cx: number, cy: number, h: number): void {
+    if (h <= 0) return;
+    const ctx = this.ctx;
+    for (const ex of [cx - 4, cx + 1]) {
+      ctx.fillStyle = OUTLINE;
+      ctx.fillRect(ex - 1, cy - h - 1, 5, h + 1);
+      ctx.fillStyle = '#9c6b4c';
+      ctx.fillRect(ex, cy - h, 3, h);
+      ctx.fillStyle = '#f29bb0';
+      if (h > 3) ctx.fillRect(ex + 1, cy - h + 1, 1, h - 2);
+    }
+  }
+
+  /** A little System 7 tag, "(bunny) ×6", pointing at the burrow it belongs to. */
+  private burrowTag(bx: number, by: number, cx: number, cy: number, count: number, n: number): void {
+    const ctx = this.ctx;
+    const icon = menuBunnyIcon();
+    const label = `×${count}`;
+    const w = 3 + icon.width + 3 + textWidth(label) + 5;
+    const h = 22;
+    const dx = bx === 0 ? 1 : bx === COLS - 1 ? -1 : 0;
+    const dy = by === 0 ? 1 : by === ROWS - 1 ? -1 : 0;
+    const bob = Math.round(Math.sin(this.clock * 3 + n) * 1.5);
+    let x: number;
+    let y: number;
+    if (dx !== 0) {
+      x = dx > 0 ? cx + 20 : cx - 20 - w;
+      y = cy - h / 2 + bob;
+    } else {
+      x = cx - w / 2;
+      y = dy > 0 ? cy + 16 + bob : cy - 18 - h + bob;
+    }
+    x = Math.round(Math.max(2, Math.min(WORLD_W - w - 4, x)));
+    y = Math.round(Math.max(2, Math.min(WORLD_H - h - 4, y)));
+    // drop shadow, frame, paper
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(x + 2, y + 2, w, h);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 1, y, w - 2, h);
+    ctx.fillRect(x, y + 1, w, h - 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+    // the pointer toward the hole
+    const tip = (px: number, py: number, ox: number, oy: number) => {
+      for (let k = 0; k < 6; k++) {
+        const len = 5 - k;
+        ctx.fillStyle = '#000000';
+        if (ox !== 0) ctx.fillRect(px + ox * k, py - len - 1, 1, len * 2 + 3);
+        else ctx.fillRect(px - len - 1, py + oy * k, len * 2 + 3, 1);
+        if (len > 0) {
+          ctx.fillStyle = '#ffffff';
+          if (ox !== 0) ctx.fillRect(px + ox * k, py - len, 1, len * 2 + 1);
+          else ctx.fillRect(px - len, py + oy * k, len * 2 + 1, 1);
+        }
+      }
+    };
+    if (dx > 0) tip(x, y + h / 2, -1, 0);
+    else if (dx < 0) tip(x + w - 1, y + h / 2, 1, 0);
+    else if (dy > 0) tip(Math.round(Math.max(x + 8, Math.min(x + w - 9, cx))), y, 0, -1);
+    else tip(Math.round(Math.max(x + 8, Math.min(x + w - 9, cx))), y + h - 1, 0, 1);
+    ctx.drawImage(icon, x + 3, y + 3);
+    drawText(ctx, label, x + 3 + icon.width + 3, y + 8, '#000000', null);
+  }
+
+  /** A smoke bomb went in: grey smoke keeps rolling out until the Buck does. */
+  private smokeCrater(g: Game): void {
+    if (!g.smoking || Math.random() > 0.28) return;
+    // a thick column, leaning back over the field (the crater sits near the edge of the map)
+    this.fx.add({
+      kind: 'puff', x: (CRATER.x + 1) * T + (Math.random() - 0.5) * 20, y: (CRATER.y + 1) * T - 10,
+      vx: -5 + (Math.random() - 0.5) * 8, vy: -16 - Math.random() * 14, size: 6 + Math.random() * 6,
+      color: SMOKE[Math.floor(Math.random() * SMOKE.length)], life: 2 + Math.random(), drag: 0.25,
+    });
+  }
+
+  /** The crater's glow, brighter and busier the angrier it is. */
+  private drawCraterGlow(anger: number): void {
     const ctx = this.ctx;
     const cx = (CRATER.x + 1) * T;
     const cy = (CRATER.y + 1) * T - 6;
-    const pulse = 0.5 + 0.5 * Math.sin(this.clock * 2.2);
+    const pulse = 0.5 + 0.5 * Math.sin(this.clock * (2.2 + anger * 0.8));
+    const r = (34 + pulse * 8) * (1 + anger * 0.2);
     ctx.globalCompositeOperation = 'lighter';
-    const grd = ctx.createRadialGradient(cx, cy, 2, cx, cy, 34 + pulse * 8);
-    grd.addColorStop(0, `rgba(120,255,90,${0.22 + pulse * 0.18})`);
+    const grd = ctx.createRadialGradient(cx, cy, 2, cx, cy, r);
+    grd.addColorStop(0, `rgba(120,255,90,${0.22 + pulse * 0.18 + anger * 0.07})`);
     grd.addColorStop(1, 'rgba(120,255,90,0)');
     ctx.fillStyle = grd;
-    ctx.fillRect(cx - 44, cy - 44, 88, 88);
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
     ctx.globalCompositeOperation = 'source-over';
-    if (Math.random() < 0.08) this.fx.add({ x: cx + (Math.random() - 0.5) * 16, y: cy, vy: -24, color: '#b8ff8a', life: 1.1, size: 2 });
+    if (Math.random() < 0.08 * (1 + anger)) {
+      this.fx.add({ x: cx + (Math.random() - 0.5) * 16, y: cy, vy: -24 - anger * 8, color: '#b8ff8a', life: 1.1, size: 2 });
+    }
+  }
+
+  /** The Crater Project going up: survey stakes, then a concrete collar, then the cap hanging ready. */
+  private collectCraterWorks(g: Game, list: Drawable[]): void {
+    if (g.project <= 0) return;
+    const img = sprites().scenery.crater;
+    const by = (CRATER.y + CRATER.h) * T;
+    const top = by + SCENERY_PLACE.crater.dy - img.height;
+    const cx = (CRATER.x + 1) * T;
+    const cy = top + 31; // the middle of the rim
+    const ring = (rx: number, ry: number, n: number, phase: number) => Array.from({ length: n }, (_, k) => {
+      const a = (k / n) * Math.PI * 2 + phase;
+      return [Math.round(cx + Math.cos(a) * rx), Math.round(cy + Math.sin(a) * ry)] as [number, number];
+    }).sort((p, q) => p[1] - q[1]);
+    const ctx = this.ctx;
+    list.push({
+      y: by - 0.5, // right after the crater itself
+      draw: () => {
+        if (g.project >= 2) {
+          // a concrete collar around the lip of the hole
+          for (const [x, y] of ring(29, 19, 18, 0)) {
+            ctx.fillStyle = OUTLINE;
+            ctx.fillRect(x - 3, y - 2, 7, 5);
+            ctx.fillStyle = '#9ea3ab';
+            ctx.fillRect(x - 2, y - 1, 5, 3);
+            ctx.fillStyle = '#d5d8de';
+            ctx.fillRect(x - 2, y - 1, 5, 1);
+          }
+        }
+        // survey stakes on the rim, strung together
+        const stakes = ring(38, 25, 10, 0.3);
+        const around = [...stakes].sort((p, q) => Math.atan2(p[1] - cy, (p[0] - cx) / 1.5) - Math.atan2(q[1] - cy, (q[0] - cx) / 1.5));
+        ctx.fillStyle = '#f4ecd8';
+        around.forEach(([x, y], k) => {
+          const [nx, ny] = around[(k + 1) % around.length];
+          pixelLine(ctx, x, y - 5, nx, ny - 5);
+        });
+        for (const [x, y] of stakes) {
+          ctx.fillStyle = OUTLINE;
+          ctx.fillRect(x - 1, y - 8, 3, 9);
+          ctx.fillRect(x + 1, y - 9, 5, 4);
+          ctx.fillStyle = '#d9a066';
+          ctx.fillRect(x, y - 7, 1, 7);
+          ctx.fillStyle = '#ff7a1a';
+          ctx.fillRect(x + 1, y - 8, 4, 2);
+        }
+        if (g.lastNight) this.drawCap(cx, top);
+      },
+    });
+  }
+
+  /** The cap, hanging on chains over the crater, waiting for dawn. */
+  private drawCap(cx: number, top: number): void {
+    const ctx = this.ctx;
+    const y = Math.round(top - 18 + Math.sin(this.clock * 1.4) * 2);
+    ctx.fillStyle = '#5d6470';
+    for (const dx of [-20, 0, 20]) {
+      for (let k = 0; k < 22; k++) {
+        const t = k / 22;
+        ctx.globalAlpha = 1 - t;
+        ctx.fillRect(Math.round(cx + dx * (1 - t * 0.7)), y - 4 - k * 3, 2, 2);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = OUTLINE;
+    this.ellipse(cx, y + 3, 34, 14);
+    ctx.fillStyle = '#5d6470';
+    this.ellipse(cx, y + 3, 33, 13);
+    ctx.fillStyle = '#9aa3b0';
+    this.ellipse(cx, y, 33, 11);
+    ctx.fillStyle = '#c3cad4';
+    this.ellipse(cx - 8, y - 3, 14, 3);
+    ctx.fillStyle = '#5d6470';
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      ctx.fillRect(Math.round(cx + Math.cos(a) * 28), Math.round(y + Math.sin(a) * 8), 1, 1);
+    }
+    ctx.fillStyle = OUTLINE;
+    ctx.fillRect(cx - 6, y - 5, 12, 4);
+    ctx.fillStyle = '#c3cad4';
+    ctx.fillRect(cx - 5, y - 4, 10, 2);
   }
 
   // ------------------------------------------------------------ ambient life
 
   private ambient(g: Game | null, dt: number): void {
     const ctx = this.ctx;
-    // chimney smoke
-    this.smokeTimer -= dt;
-    if (this.smokeTimer <= 0) {
-      this.smokeTimer = 0.45;
-      this.fx.add({
-        kind: 'puff', x: (HOUSE.x + 0.95) * T, y: HOUSE.y * T - 24, vx: 8 + Math.random() * 6, vy: -14,
-        size: 5, color: '#e8e4dc', life: 2.2, drag: 0.3,
-      });
-    }
     // butterflies drift around the meadow
     for (const b of this.butterflies) {
       b.t += dt;
@@ -820,7 +1210,7 @@ export class Renderer {
       if (b.maxHp > 1 && b.hp < b.maxHp && g.isSurfaced(b)) {
         const def = BUNNIES[b.kind];
         const w = def.boss ? 44 : 20;
-        const h = def.boss ? 70 : def.kind === 'fat' ? 42 : 32;
+        const h = sprites().bunnies[b.kind].frames[0].height + (def.boss ? 12 : 6);
         this.bar(b.x * T - w / 2, b.y * T + 7 - h, w, b.hp / b.maxHp, def.boss ? '#9dff6b' : '#ff6a5a');
       }
     }
@@ -828,23 +1218,63 @@ export class Renderer {
 
   private drawPlanningUnderlay(g: Game, view: View): void {
     const ctx = this.ctx;
-    if (view.previewExpand && g.plotLevel < 3) {
-      const now = plotRect(g.plotLevel);
-      const next = plotRect(g.plotLevel + 1);
-      ctx.globalAlpha = 0.45 + 0.15 * Math.sin(this.clock * 5);
-      ctx.fillStyle = SOIL.body;
-      for (let y = next.y0; y <= next.y1; y++) {
-        for (let x = next.x0; x <= next.x1; x++) if (!inRect(now, x, y)) ctx.fillRect(x * T, y * T, T, T);
-      }
-      ctx.globalAlpha = 1;
-    }
     const hovered = view.hoverTile >= 0 ? g.tiles[view.hoverTile].structure : null;
     const showSprinklers = hovered?.kind === 'sprinkler' || (view.selected?.type === 'defense' && view.selected.kind === 'sprinkler');
     if (showSprinklers) {
       ctx.globalAlpha = 0.2;
       ctx.fillStyle = '#5fb8f0';
-      for (let i = 0; i < g.tiles.length; i++) if (g.growthMult[i] > 1) ctx.fillRect(tileX(i) * T, tileY(i) * T, T, T);
+      for (let i = 0; i < g.tiles.length; i++) if (g.sprinklerGrowth(i) > 1) ctx.fillRect(tileX(i) * T, tileY(i) * T, T, T);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  /**
+   * Planning: land that isn't yours goes dark. Lots for sale get a dotted outline, and with the land tool in
+   * hand the lot under the mouse lights up with its price.
+   */
+  private drawLand(g: Game, view: View): void {
+    const ctx = this.ctx;
+    const hoverLot = view.selected?.type === 'land' && view.hoverTile >= 0 ? lotOfTile(view.hoverTile) : -1;
+    const bomb = view.selected?.type === 'smoke';
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = 'rgb(118, 122, 150)';
+    for (let y = 0; y < ROWS; y++) {
+      let run = -1;
+      for (let x = 0; x <= COLS; x++) {
+        const i = idx(Math.min(x, COLS - 1), y);
+        const dark = x < COLS && !g.owns(i) && !(hoverLot >= 0 && lotOfTile(i) === hoverLot) && !(bomb && inCrater(i));
+        if (dark && run < 0) run = x;
+        if (!dark && run >= 0) {
+          ctx.fillRect(run * T, y * T, (x - run) * T, T);
+          run = -1;
+        }
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    // dotted outlines round the lots still for sale
+    ctx.fillStyle = '#ffffff';
+    for (let n = 0; n < LOT_COUNT; n++) {
+      if (g.lots[n]) continue;
+      const r = lotRect(n);
+      const x0 = r.x0 * T;
+      const y0 = r.y0 * T;
+      const w = (r.x1 - r.x0 + 1) * T;
+      const h = (r.y1 - r.y0 + 1) * T;
+      ctx.globalAlpha = n === hoverLot ? 1 : 0.22;
+      for (let k = 0; k < w; k += 4) {
+        ctx.fillRect(x0 + k, y0, 2, 1);
+        ctx.fillRect(x0 + k, y0 + h - 1, 2, 1);
+      }
+      for (let k = 0; k < h; k += 4) {
+        ctx.fillRect(x0, y0 + k, 1, 2);
+        ctx.fillRect(x0 + w - 1, y0 + k, 1, 2);
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (hoverLot >= 0 && !g.lots[hoverLot]) {
+      const r = lotRect(hoverLot);
+      const price = lotPrice(g.lotsBought);
+      this.tag(`BUY THIS LOT: ${price}¢`, (r.x0 + r.x1 + 1) / 2 * T, (r.y0 + r.y1 + 1) / 2 * T + 6, g.credits < price ? '#b0281c' : '#000000');
     }
   }
 
@@ -871,14 +1301,41 @@ export class Renderer {
       return;
     }
     const problem = g.placeProblem(item, i);
+    if (item.type === 'land') return; // the whole lot lights up instead
+    if (item.type === 'smoke') {
+      if (!inCrater(i)) return;
+      ctx.fillStyle = problem ? '#ff4a3a' : '#ffffff';
+      this.frame((CRATER.x - 1) * T, (CRATER.y - 1) * T, (CRATER.w + 2) * T, (CRATER.h + 2) * T);
+      this.tag(problem ? problem.replace(/\.$/, '').toUpperCase() : `THROW IT IN: ${SMOKE_BOMB}¢`, (CRATER.x + 1) * T,
+        (CRATER.y - 1) * T - 2, problem ? '#b0281c' : '#000000');
+      return;
+    }
+    if (item.type === 'till') {
+      // a patch of soil where the hoe would go
+      if (!problem) {
+        ctx.globalAlpha = 0.7;
+        if (this.soilTiles.length === 0) this.soilTiles = [0, 1, 2, 3].map((v) => this.soilTile(v));
+        ctx.drawImage(this.soilTiles[0], tx, ty);
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = problem ? '#ff4a3a' : '#ffffff';
+      this.frame(tx, ty, T, T);
+      return;
+    }
+    if (item.type === 'crop' && problem && g.owns(i) && !g.tilled[i] && !g.tiles[i].crop && !g.tiles[i].structure) {
+      ctx.fillStyle = '#ff4a3a';
+      this.frame(tx, ty, T, T);
+      this.tag('TILL FIRST (H)', tx + T / 2, ty - 3, '#b0281c');
+      return;
+    }
     if (item.type === 'upgrade') {
       const s = g.tiles[i].structure;
       if (!s) return;
       ctx.fillStyle = problem ? '#ff4a3a' : '#ffe24a';
       this.frame(tx, ty, T, T);
       this.frame(tx + 1, ty + 1, T - 2, T - 2);
-      const label = s.level >= MAX_LEVEL ? 'MAX' : `LV${s.level + 1} ${upgradeCost(s.kind, s.level)}¢`;
-      drawText(ctx, label, tx + 16 - (textWidth(label, 2) >> 1), ty - 14, problem ? '#ff9a9a' : '#ffe24a', OUTLINE, 2, 1);
+      const label = s.level >= MAX_LEVEL ? 'MAX LEVEL' : `LEVEL ${s.level + 1}: ${upgradeCost(s.kind, s.level)}¢`;
+      this.tag(label, tx + T / 2, ty - 3, problem ? '#b0281c' : '#000000');
       if (s.level < MAX_LEVEL && DEFENSES[s.kind].radius > 1) this.range(i, defenseStats(s.kind, s.level + 1).radius, '#ffe24a');
       return;
     }
@@ -892,15 +1349,14 @@ export class Renderer {
         pixelLine(ctx, tx + 25 + k, ty + 6, tx + 6 + k, ty + 25);
       }
       const refund = g.removeValue(i);
-      const label = refund > 0 ? `+${refund}¢` : '0¢';
-      drawText(ctx, label, tx + 16 - (textWidth(label, 2) >> 1), ty - 14, refund > 0 ? '#ffe24a' : '#ffffff', OUTLINE, 2, 1);
+      this.tag(refund > 0 ? `SELL +${refund}¢` : 'CLEAR', tx + T / 2, ty - 3, '#000000');
       return;
     }
     const icon = placementPreview(item);
     if (!icon) return;
     ctx.globalAlpha = problem ? 0.35 : 0.75;
     if (item.type === 'defense' && item.kind === 'fence') ctx.drawImage(icon, tx, ty - 12);
-    else this.blit(icon, tx + T / 2, ty + T - 2, false, 1, 1, problem ? 0.35 : 0.75);
+    else this.blit(icon, tx + T / 2, ty + T - 2, false, problem ? 0.35 : 0.75);
     ctx.globalAlpha = 1;
     ctx.fillStyle = problem ? '#ff4a3a' : '#ffffff';
     this.frame(tx, ty, T, T);
@@ -917,6 +1373,22 @@ export class Renderer {
     ctx.globalAlpha = 0.95;
     dottedCircle(ctx, cx, cy, r * T, 5, this.clock * 0.5, 2);
     ctx.globalAlpha = 1;
+  }
+
+  /** A little System 7 label, black text on white, centered over (cx, bottom). */
+  private tag(text: string, cx: number, bottom: number, color = '#000000'): void {
+    const ctx = this.ctx;
+    const w = textWidth(text) + 8;
+    const h = 13;
+    const x = Math.round(Math.max(1, Math.min(WORLD_W - w - 3, cx - w / 2)));
+    const y = Math.round(Math.max(1, Math.min(WORLD_H - h - 3, bottom - h)));
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(x + 2, y + 2, w, h);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+    drawText(ctx, text, x + 4, y + 3, color, null);
   }
 
   private frame(x: number, y: number, w: number, h: number): void {
@@ -968,7 +1440,7 @@ export class Renderer {
         d.y += 420 * d.v * dt;
         d.x -= 90 * d.v * dt;
         if (d.y > WORLD_H) {
-          if (Math.random() < 0.35) this.fx.add({ kind: 'ring', x: d.x, y: WORLD_H * Math.random(), size: 6, color: '#d6e6ff', life: 0.3 });
+          if (Math.random() < 0.35) this.fx.add({ kind: 'splash', x: d.x, y: WORLD_H * Math.random(), color: '#d6e6ff', life: 0.25 });
           d.y = -10;
           d.x = Math.random() * (WORLD_W + 120);
         }
@@ -1003,14 +1475,14 @@ export class Renderer {
     }
     if (w === 'fog') {
       this.fogPhase += dt;
-      ctx.fillStyle = 'rgba(235, 240, 245, 0.18)';
+      ctx.fillStyle = 'rgba(235, 240, 245, 0.07)';
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
       for (let k = 0; k < 7; k++) {
         const cx = ((rand(k, 1, 81) * WORLD_W + this.fogPhase * (10 + k * 3)) % (WORLD_W + 300)) - 150;
         const cy = rand(k, 2, 81) * WORLD_H;
         const r = 120 + rand(k, 3, 81) * 120;
         const grd = ctx.createRadialGradient(cx, cy, 10, cx, cy, r);
-        grd.addColorStop(0, 'rgba(240, 244, 248, 0.42)');
+        grd.addColorStop(0, 'rgba(240, 244, 248, 0.26)');
         grd.addColorStop(1, 'rgba(240, 244, 248, 0)');
         ctx.fillStyle = grd;
         ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
@@ -1018,20 +1490,23 @@ export class Renderer {
     }
     if (w === 'rain') {
       ctx.globalCompositeOperation = 'multiply';
-      ctx.fillStyle = 'rgb(200, 210, 228)';
+      ctx.fillStyle = 'rgb(214, 222, 236)';
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
       ctx.globalCompositeOperation = 'source-over';
     }
   }
 
-  /** Time of day: warm morning, clear noon, golden afternoon, violet sundown, blue evening. */
-  private drawLight(g: Game, dt: number): void {
+  /** Time of day: warm morning, clear noon, golden afternoon, violet sundown, blue evening. The Last Night is night. */
+  private drawLight(g: Game, view: View, dt: number): void {
     const ctx = this.ctx;
     let target = 0;
-    if (g.phase === 'round') target = Math.max(0, (g.time / ROUND_SECONDS - 0.62) / 0.38) * 0.55;
+    const nightfall = g.lastNight && (g.phase === 'round' || g.phase === 'sundown');
+    if (nightfall) target = 0;
+    else if (g.phase === 'round') target = Math.max(0, (g.time / ROUND_SECONDS - 0.62) / 0.38) * 0.55;
     else if (g.phase === 'sundown') target = 0.85;
     else if (g.phase === 'harvest' || g.phase === 'summary') target = 1;
     this.dusk += (target - this.dusk) * Math.min(1, dt * 1.6);
+    this.night += ((nightfall ? 1 : 0) - this.night) * Math.min(1, dt * 1.2);
     // drifting cloud shadows
     for (const c of this.clouds) {
       c.x += c.v * dt;
@@ -1051,19 +1526,6 @@ export class Renderer {
       ctx.fillStyle = `rgb(${r},${gg},${b})`;
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
       ctx.globalCompositeOperation = 'source-over';
-      // lamplight in the farmhouse windows as evening falls
-      if (d > 0.4) {
-        ctx.globalCompositeOperation = 'lighter';
-        const a = (d - 0.4) * 0.9;
-        for (const [wx, wy] of [[HOUSE.x * T + 26, HOUSE.y * T + 30], [HOUSE.x * T + 60, HOUSE.y * T + 40]]) {
-          const grd = ctx.createRadialGradient(wx, wy, 1, wx, wy, 20);
-          grd.addColorStop(0, `rgba(255, 200, 90, ${a})`);
-          grd.addColorStop(1, 'rgba(255, 200, 90, 0)');
-          ctx.fillStyle = grd;
-          ctx.fillRect(wx - 20, wy - 20, 40, 40);
-        }
-        ctx.globalCompositeOperation = 'source-over';
-      }
     } else if (g.phase === 'round' && g.time < ROUND_SECONDS * 0.15) {
       // soft morning warmth
       ctx.globalAlpha = 0.08 * (1 - g.time / (ROUND_SECONDS * 0.15));
@@ -1071,6 +1533,7 @@ export class Renderer {
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
       ctx.globalAlpha = 1;
     }
+    if (this.night > 0.01) this.drawNight(g, view);
     // a gentle vignette
     const v = ctx.createRadialGradient(WORLD_W / 2, WORLD_H / 2, WORLD_H * 0.45, WORLD_W / 2, WORLD_H / 2, WORLD_W * 0.62);
     v.addColorStop(0, 'rgba(0,0,0,0)');
@@ -1079,8 +1542,93 @@ export class Renderer {
     ctx.fillRect(0, 0, WORLD_W, WORLD_H);
   }
 
+  /** Once the mouse rests on something, name it in a little tag above the pointer. */
+  private drawHoverLabel(g: Game, view: View): void {
+    const now = performance.now();
+    if (Math.abs(view.mouseX - this.rest.x) > 3 || Math.abs(view.mouseY - this.rest.y) > 3) {
+      this.rest = { x: view.mouseX, y: view.mouseY, since: now };
+    }
+    const tool = view.selected?.type;
+    if (!view.mouseIn || tool === 'upgrade' || tool === 'remove' || g.hoseAim) return;
+    const live = g.phase === 'round' || g.phase === 'sundown';
+    if (now - this.rest.since < (live ? 450 : 250)) return;
+    const label = this.nameAt(g, view);
+    if (label) this.tag(label, view.mouseX, view.mouseY - (live ? 16 : 6));
+  }
+
+  private nameAt(g: Game, view: View): string | null {
+    const mx = view.mouseX / T;
+    const my = view.mouseY / T;
+    let best: Bunny | null = null;
+    let bestD = Infinity;
+    for (const b of g.bunnies) {
+      if (b.dead) continue;
+      const def = BUNNIES[b.kind];
+      const cy = b.y - (g.isSurfaced(b) ? def.aim : 0);
+      const d = Math.hypot(b.x - mx, cy - my);
+      if (d <= def.size / 16 + 0.15 && d < bestD) {
+        best = b;
+        bestD = d;
+      }
+    }
+    if (best) return g.isSurfaced(best) ? BUNNIES[best.kind].name : `${BUNNIES[best.kind].name}, digging`;
+    for (const d of g.dogs) if (Math.hypot(d.x - mx, d.y - 0.2 - my) < 0.5) return 'Guard dog';
+    const i = view.hoverTile;
+    if (i < 0) return null;
+    const t = g.tiles[i];
+    if (t.structure) {
+      const s = t.structure;
+      const name = DEFENSES[s.kind].name;
+      if (s.kind === 'trap' && s.cd > 0 && live(g)) return `${name}, resetting`;
+      return s.level > 1 ? `${name} (level ${s.level})` : name;
+    }
+    if (t.crop) {
+      const name = CROPS[t.crop.kind].name;
+      const stage = g.cropStage(t.crop);
+      return stage === 0 ? `${name} seeds` : stage === 1 ? `${name} sprout` : stage === 2 ? `Young ${name.toLowerCase()}` : `Ripe ${name.toLowerCase()}`;
+    }
+    const tx = tileX(i);
+    const ty = tileY(i);
+    if (g.burrows.some((b) => b.x === tx && b.y === ty)) return g.phase === 'planning' ? null : 'Burrow'; // tagged already
+    const sc = SCENERY.find((o) => tx >= o.x && ty >= o.y && tx < o.x + o.w && ty < o.y + o.h);
+    return sc ? SCENERY_NAMES[sc.kind] : null;
+  }
+
+  /** Moonlight blue over everything, the crater blazing, and a lantern where you aim. */
+  private drawNight(g: Game, view: View): void {
+    const ctx = this.ctx;
+    const n = this.night;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = `rgb(${Math.round(255 - n * 120)},${Math.round(255 - n * 105)},${Math.round(255 - n * 45)})`;
+    ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = (x: number, y: number, r: number, color: string, a: number) => {
+      const grd = ctx.createRadialGradient(x, y, 1, x, y, r);
+      grd.addColorStop(0, `rgba(${color},${a})`);
+      grd.addColorStop(1, `rgba(${color},0)`);
+      ctx.fillStyle = grd;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    };
+    const pulse = 0.5 + 0.5 * Math.sin(this.clock * 3);
+    glow((CRATER.x + 1) * T, (CRATER.y + 1) * T - 6, 90, '120,255,90', (0.22 + pulse * 0.1) * n);
+    if (view.mouseIn) glow(view.mouseX, view.mouseY, 78, '255,232,176', 0.22 * n);
+    ctx.globalCompositeOperation = 'source-over';
+    void g;
+  }
+
   private drawCrosshair(g: Game, view: View): void {
-    this.crosshair(view, g.slingCd / SLING_LEVELS[g.slingLevel].reload);
+    const kind = g.weapon;
+    const st = weaponStats(kind, g.weapons[kind]);
+    const ctx = this.ctx;
+    // how far each weapon reaches: the pellet scatter, the splash, the spray
+    const reach = WEAPONS[kind].splash || kind === 'hose' ? st.radius * T : st.spread ? st.spread * T : 0;
+    if (reach > 0) {
+      ctx.fillStyle = kind === 'hose' ? '#bfe6ff' : '#ffffff';
+      ctx.globalAlpha = 0.7;
+      dottedCircle(ctx, view.mouseX, view.mouseY, reach, 4, -this.clock, 1);
+      ctx.globalAlpha = 1;
+    }
+    this.crosshair(view, g.reloadFrac());
   }
 
   /** The sling's sights; `reloading` is 1 just after a shot and 0 when ready. */
@@ -1149,7 +1697,7 @@ export class Renderer {
     this.fx.update(dt);
     const ctx = this.ctx;
     this.season = 'spring';
-    if (!this.bg || this.bgKey !== '-1:spring') this.buildBackground(-1);
+    if (!this.bg || this.bgKey !== 'classic:spring') this.buildBackground(null, 'classic:spring');
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.bg!, 0, 0);
@@ -1174,7 +1722,7 @@ export class Renderer {
             ctx.beginPath();
             ctx.rect(px - 20, py - 60, 40, 60 - 7);
             ctx.clip();
-            this.blit(img, px, py - 7 + (1 - rise) * img.height);
+            this.blit(img, px, py - 7 + Math.round((1 - rise) * img.height));
             ctx.restore();
           },
         });
@@ -1187,23 +1735,10 @@ export class Renderer {
         continue;
       }
       const art = t.kind === 'golden' ? sp.golden : t.kind === 'fat' ? sp.bunnies.fat : t.kind === 'speedy' ? sp.bunnies.speedy : sp.bunnies.common;
-      const cycle = t.hop % 1;
-      let frame = 0;
-      let lift = 0;
-      let sx = 1;
-      let sy = 1;
-      if (art.squash) {
-        const s = Math.sin(cycle * Math.PI * 2);
-        sy = 1 + s * 0.1;
-        sx = 1 - s * 0.07;
-        lift = Math.max(0, Math.sin(cycle * Math.PI)) * 6;
-      } else {
-        frame = Math.floor(cycle * art.frames.length) % art.frames.length;
-        lift = frame >= 2 && frame <= 6 ? Math.sin(((frame - 2) / 4) * Math.PI) * 6 : 0;
-      }
+      const { frame, lift } = this.hopPose(art, t.hop % 1, 6);
       const img = t.flash > 0 ? art.flash[frame] : art.frames[frame];
       shadows.push([px, py - 1, Math.max(4, (img.width / 2.6) * (1 - lift / 30))]);
-      this.put(list, img, px, py, { flip, sx, sy, lift });
+      this.put(list, img, px, py, { flip, lift });
       if (t.kind === 'golden' && Math.random() < 0.5) {
         this.fx.add({ kind: 'sparkle', x: px + (Math.random() - 0.5) * 20, y: py - 10 - Math.random() * 16, life: 0.35, color: '#fff6c0' });
       }
@@ -1211,7 +1746,7 @@ export class Renderer {
     this.drawShadows(shadows);
     list.sort((p, q) => p.y - q.y);
     for (const d of list) d.draw();
-    this.drawCraterGlow();
+    this.drawCraterGlow(0);
     this.ambient(null, dt);
     this.fx.draw(ctx);
     // the last ten seconds glow red at the edges
@@ -1222,12 +1757,19 @@ export class Renderer {
     ctx.fillStyle = v;
     ctx.fillRect(0, 0, WORLD_W, WORLD_H);
     if (view.mouseIn && !c.done) this.crosshair(view, c.reload / CLASSIC_RELOAD);
+    this.present();
   }
 }
 
+const live = (g: Game) => g.phase === 'round' || g.phase === 'sundown';
+
+const SCENERY_NAMES: Record<Scenery['kind'], string> = {
+  crater: 'The crater', pond: 'Pond', tree_oak: 'Oak tree', tree_apple: 'Apple tree',
+  bush: 'Bush', stump: 'Stump', haybale: 'Hay bale', rocks: 'Rocks', flowers: 'Wildflowers',
+};
+
 // how each kind of scenery sits on its footprint: nudge down (dy) and shadow width
 const SCENERY_PLACE: Record<Scenery['kind'], { dy: number; shadow: number }> = {
-  farmhouse: { dy: 4, shadow: 0 },
   crater: { dy: 14, shadow: 0 },
   pond: { dy: 4, shadow: 0 },
   tree_oak: { dy: 4, shadow: 20 },
@@ -1251,7 +1793,20 @@ function placementPreview(item: ShopItem): Img | null {
       case 'sprinkler': return sp.defenses.sprinkler;
       case 'turret': return sp.defenses.turret;
       case 'doghouse': return sp.defenses.doghouse;
+      case 'thumper': return sp.defenses.thumperUp;
+      case 'decoy': return sp.defenses.decoy;
+      case 'beehive': return sp.defenses.beehive;
     }
   }
   return null;
+}
+
+let exclaimImg: Img | null = null;
+/** The "!" over a spooked bunny. */
+function exclaim(): Img {
+  exclaimImg ??= PixelGrid.fromRows(
+    ['.rr.', 'rwwr', 'rwwr', 'rwwr', 'rwwr', '.rr.', 'rwwr', '.rr.'],
+    { r: '#c0392b', w: '#ffffff' },
+  ).outlined().canvas();
+  return exclaimImg;
 }

@@ -1,4 +1,4 @@
-import type { BunnyKind, CropKind, DefenseKind } from './config';
+import type { BunnyKind, CropKind, DefenseKind, WeaponKind } from './config';
 
 export interface Crop {
   kind: CropKind;
@@ -58,8 +58,30 @@ export interface Bunny {
   tick: number;
   ox: number; // cosmetic offset while eating so crowds don't stack perfectly
   oy: number;
+  brood: number; // Bunny Queen: seconds toward her next Burrower
+  broodCount: number;
+  popped: number; // Burrower: seconds it's up out of the ground (peeking, or knocked out)
+  peek: number; // Burrower: seconds until it next pokes its head up
+  armor: number; // Pot-Head: pebbles its pot can still turn away
+  carry: Loot | null; // Bandit: the crop it's running off with
   dead: boolean;
   gone: boolean;
+}
+
+/** A crop a Bandit grabbed, and where it came from, so a bonk can put it back. */
+export interface Loot {
+  crop: Crop;
+  from: number;
+}
+
+/** Something lobbed from the porch (a potato, a firework) on its way down. */
+export interface Shell {
+  weapon: WeaponKind;
+  level: number;
+  x: number; // where it lands, tile units
+  y: number;
+  t: number; // seconds until it lands
+  flight: number;
 }
 
 export interface Dog {
@@ -94,13 +116,16 @@ export interface SpawnEntry {
   burrow: number; // index into burrows, or -1 for the crater
 }
 
-export type Phase = 'title' | 'planning' | 'round' | 'sundown' | 'harvest' | 'summary' | 'gameover';
+export type Phase = 'title' | 'planning' | 'round' | 'sundown' | 'harvest' | 'summary' | 'gameover' | 'victory';
 
 export type ShopItem =
   | { type: 'crop'; kind: CropKind }
   | { type: 'defense'; kind: DefenseKind }
   | { type: 'remove' }
-  | { type: 'upgrade' };
+  | { type: 'upgrade' }
+  | { type: 'till' } // the hoe: turn grass into a seedbed
+  | { type: 'land' } // buy the lot you click
+  | { type: 'smoke' }; // a smoke bomb: throw it into the crater and a Buck comes out today
 
 export interface RoundStats {
   harvested: Partial<Record<CropKind, { count: number; value: number }>>;
@@ -112,6 +137,10 @@ export interface RoundStats {
   escapedHungry: number;
   cropsLost: number;
   structuresBroken: number;
+  bucks: number; // Asteroid Bucks bonked today
+  bucksEscaped: number;
+  cropsStolen: number;
+  market: Partial<Record<CropKind, number>>; // tonight's price, as a share of normal, for what sold
 }
 
 export interface LifetimeStats {
@@ -119,13 +148,13 @@ export interface LifetimeStats {
   harvest: number; // lifetime credits from harvests == score
   cropsLost: number;
   bossesBeaten: number;
+  sealedOn?: number; // the day the crater was sealed: the run is won
 }
 
 // x/y are tile units unless noted
 export type GameEvent =
   | { t: 'poof'; x: number; y: number; kind: BunnyKind }
   | { t: 'hit'; x: number; y: number }
-  | { t: 'sling'; x: number; y: number; hit: boolean }
   | { t: 'snap'; x: number; y: number }
   | { t: 'scare'; x: number; y: number; r: number }
   | { t: 'spray'; x: number; y: number; r: number }
@@ -145,4 +174,21 @@ export type GameEvent =
   | { t: 'escape'; x: number; y: number; fed: boolean }
   | { t: 'roundStart' }
   | { t: 'sundown' }
-  | { t: 'buy' };
+  | { t: 'buy' }
+  | { t: 'dodge'; x: number; y: number }
+  | { t: 'brood'; x: number; y: number }
+  | { t: 'project'; stage: number }
+  | { t: 'fire'; weapon: WeaponKind; x: number; y: number; hit: boolean }
+  | { t: 'blast'; weapon: WeaponKind; x: number; y: number; r: number }
+  | { t: 'clang'; x: number; y: number }
+  | { t: 'potOff'; x: number; y: number }
+  | { t: 'thunk'; x: number; y: number }
+  | { t: 'thump'; x: number; y: number; r: number }
+  | { t: 'sting'; x: number; y: number }
+  | { t: 'steal'; x: number; y: number; kind: CropKind }
+  | { t: 'drop'; x: number; y: number }
+  | { t: 'zap'; x: number; y: number }
+  | { t: 'weapon'; weapon: WeaponKind }
+  | { t: 'till'; x: number; y: number }
+  | { t: 'buyLand'; x: number; y: number }
+  | { t: 'smoke'; x: number; y: number };

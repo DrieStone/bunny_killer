@@ -5,8 +5,8 @@
 - recolors purple soil mounds to the brown every other crop uses
 - scrubs stray magenta pixels out of the animation sheets
 - mirrors the dog so every creature faces right (the game flips them for left)
-- derives the white jackrabbit and gray burrower from the brown bunny's hop frames,
-  and the sprung trap from the open one
+- derives the jackrabbit, burrower, ninja (headband), Pot-Head (pot), Leaper, Bandit (mask), Snow Hare, and
+  two-thirds-size Kits from the brown bunny's hop frames, and the Bunny Queen from the Chonk
 
 Run: python3 scripts/process-sprites.py
 """
@@ -126,13 +126,141 @@ def recolor_fur(im, kind):
                 continue
             if kind == 'jack':  # sandy cream jackrabbit
                 px[x, y] = rgb(40 / 360, 0.42 + l * 0.58, 0.18 + s * 0.3)
+            elif kind == 'ninja':  # charcoal
+                px[x, y] = rgb(232 / 360, 0.07 + l * 0.44, 0.13)
+            elif kind == 'leaper':  # russet hare
+                px[x, y] = rgb(20 / 360, 0.14 + l * 0.72, 0.55 + s * 0.2)
+            elif kind == 'bandit':  # dusty gray-brown
+                px[x, y] = rgb(30 / 360, 0.1 + l * 0.8, 0.12)
+            elif kind == 'snow':  # white, with cool blue shading
+                px[x, y] = rgb(210 / 360, 0.5 + l * 0.5, 0.22)
+            elif kind == 'kit':  # a lighter, fluffier brown
+                px[x, y] = rgb(26 / 360, 0.2 + l * 0.85, 0.42)
             else:  # slate-gray burrower, dusted with dirt
                 px[x, y] = rgb(212 / 360, 0.1 + l * 0.92, 0.09)
     return im
 
 
+def head_offset(ref, im, box=(10, 7, 22, 15), reach=4):
+    """Where the head in hop frame `ref` (the patch `box`) went in frame `im`, as (dx, dy)."""
+    rp, ip = ref.load(), im.load()
+    best, best_off = None, (0, 0)
+    for dy in range(-reach, reach + 1):
+        for dx in range(-reach, reach + 1):
+            miss = 0
+            for y in range(box[1], box[3]):
+                for x in range(box[0], box[2]):
+                    a = rp[x, y][3] > 0
+                    nx, ny = x + dx, y + dy
+                    b = 0 <= nx < im.width and 0 <= ny < im.height and ip[nx, ny][3] > 0
+                    miss += a != b
+            if best is None or miss < best:
+                best, best_off = miss, (dx, dy)
+    return best_off
+
+
+BAND = {'hi': (232, 64, 52, 255), 'lo': (150, 30, 24, 255)}
+
+
+def headband(im, off):
+    """Tie a red ninja headband across the forehead (hop frame 0 coordinates, shifted by `off`)."""
+    im = im.copy()
+    px = im.load()
+    dx, dy = off
+
+    def put(x, y, c, over_outline=True):
+        x, y = x + dx, y + dy
+        if 0 <= x < im.width and 0 <= y < im.height and (px[x, y][3] > 0 or over_outline):
+            px[x, y] = c
+
+    for x in range(12, 20):  # the band, above the eye
+        put(x, 9, BAND['hi'], False)
+    for x in range(12, 16):
+        put(x, 10, BAND['lo'], False)
+    # the knot's tails, streaming out behind
+    for x, y, c in [(11, 9, 'hi'), (10, 9, 'hi'), (9, 10, 'hi'), (8, 10, 'lo'), (11, 10, 'lo'), (10, 11, 'lo'), (9, 11, 'lo')]:
+        put(x, y, BAND[c])
+    return im
+
+
+def overlay(im, off, rects):
+    """Paint (x, y, w, h, color) rectangles given in hop-frame-0 coordinates, shifted to where the head went."""
+    im = im.copy()
+    px = im.load()
+    dx, dy = off
+    for x0, y0, w, h, c in rects:
+        for y in range(y0, y0 + h):
+            for x in range(x0, x0 + w):
+                if 0 <= x + dx < im.width and 0 <= y + dy < im.height:
+                    px[x + dx, y + dy] = c
+    return im
+
+
+POT = {'o': (34, 36, 44, 255), 'd': (94, 102, 114, 255), 'm': (143, 152, 166, 255), 'l': (205, 212, 222, 255)}
+
+
+def pot(im, off):
+    """An upside-down cooking pot jammed on the head, handle sticking out the back."""
+    return overlay(im, off, [
+        (8, 5, 5, 3, POT['o']), (9, 6, 3, 1, POT['d']),  # handle
+        (12, 3, 10, 5, POT['o']), (13, 4, 8, 3, POT['m']), (13, 4, 8, 1, POT['l']), (19, 5, 2, 2, POT['d']),  # body
+        (11, 7, 12, 3, POT['o']), (12, 8, 10, 1, POT['l']),  # rim
+    ])
+
+
+def mask(im, off):
+    """A robber's mask across the eyes, with the eye left shining through."""
+    return overlay(im, off, [
+        (12, 10, 9, 2, (28, 26, 34, 255)), (10, 10, 2, 1, (28, 26, 34, 255)), (9, 11, 2, 1, (28, 26, 34, 255)),
+        (16, 10, 1, 1, (255, 255, 255, 255)), (17, 11, 1, 1, (255, 255, 255, 255)),
+    ])
+
+
+def shrink(im, keep=(0, 1)):
+    """Two-thirds size: of every three rows and columns keep two (a whole-pixel shrink, no blending),
+    then give the edge a fresh outline. Ears and eyes survive, which halving doesn't manage."""
+    xs = [x for x in range(im.width) if x % 3 in keep]
+    ys = [y for y in range(im.height) if y % 3 in keep]
+    out = Image.new('RGBA', (len(xs), len(ys)), (0, 0, 0, 0))
+    src, dst = im.load(), out.load()
+    for j, y in enumerate(ys):
+        for i, x in enumerate(xs):
+            dst[i, j] = src[x, y]
+    w, h = out.size
+    edge = [(x, y) for y in range(h) for x in range(w) if dst[x, y][3] > 0 and any(
+        not (0 <= x + i < w and 0 <= y + j < h) or dst[x + i, y + j][3] == 0 for i, j in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+    for x, y in edge:
+        if hls(dst[x, y])[1] > 0.3:
+            dst[x, y] = (42, 27, 20, 255)
+    return out
+
+
+def queen(im):
+    """The Chonk in royal lavender, with a little gold crown on her head."""
+    im = im.copy()
+    px = im.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            p = px[x, y]
+            if p[3] == 0:
+                continue
+            h, l, s = hls(p)
+            deg = h * 360
+            if 12 <= deg <= 52 and s > 0.1 and 0.2 < l < 0.95:
+                px[x, y] = rgb(272 / 360, 0.3 + l * 0.62, 0.42)
+    gold, shine, dark, gem = (255, 206, 58, 255), (255, 243, 160, 255), (138, 92, 16, 255), (224, 69, 123, 255)
+    rows = ['d...d...d', 'dd.dgd.dd', 'dgdgggdgd', 'dgsggjggd', 'dgggggggd', 'ddddddddd']
+    ox, oy = 24, 6
+    for ry, row in enumerate(rows):
+        for rx, ch in enumerate(row):
+            c = {'d': dark, 'g': gold, 's': shine, 'j': gem}.get(ch)
+            if c:
+                px[ox + rx, oy + ry] = c
+    return im
+
+
 def oak(im):
-    """Push pale pinkish wood toward a darker, warmer oak brown."""
+    """Push pale pinkish wood toward a light golden oak that stands out on dark tilled soil."""
     im = im.copy()
     px = im.load()
     for y in range(im.height):
@@ -143,7 +271,9 @@ def oak(im):
             h, l, s = hls(p)
             deg = h * 360
             if (deg >= 340 or deg <= 45) and s > 0.12 and l > 0.25:
-                px[x, y] = rgb(24 / 360, 0.1 + l * 0.55, min(0.5, s * 0.55 + 0.14))
+                px[x, y] = rgb(30 / 360, 0.2 + l * 0.62, min(0.62, s * 0.6 + 0.22))
+            elif 260 <= deg < 340 and l < 0.3:
+                px[x, y] = rgb(22 / 360, l * 0.95, 0.4)  # plum outline -> dark brown, like everything else
     return im
 
 
@@ -171,7 +301,16 @@ for i, f in enumerate(hop):
     emit(f, f'bunny_common_{i}')
     emit(recolor_fur(f, 'jack'), f'bunny_jack_{i}')
     emit(recolor_fur(f, 'digger'), f'bunny_digger_{i}')
-emit(trim(remove_shadow(load('bunnies/fat_sit'), 0.25)), 'bunny_fat')
+    head = head_offset(hop[0], f)
+    emit(headband(recolor_fur(f, 'ninja'), head), f'bunny_ninja_{i}')
+    emit(pot(f, head), f'bunny_pothead_{i}')
+    emit(recolor_fur(f, 'leaper'), f'bunny_leaper_{i}')
+    emit(mask(recolor_fur(f, 'bandit'), head), f'bunny_bandit_{i}')
+    emit(recolor_fur(f, 'snow'), f'bunny_snow_{i}')
+    emit(shrink(recolor_fur(f, 'kit')), f'bunny_kit_{i}')
+fat = trim(remove_shadow(load('bunnies/fat_sit'), 0.25))
+emit(fat, 'bunny_fat')
+emit(queen(fat), 'bunny_queen')
 emit(trim(load('bunnies/boss_sit')), 'bunny_boss')
 emit(trim(load('bunnies/digger_mound')), 'digger_mound')
 
@@ -194,12 +333,9 @@ for kind in ['radish', 'lettuce', 'carrot', 'corn', 'pumpkin', 'strawberry']:
 
 # --- defenses
 emit(trim(load('defenses/scarecrow')), 'def_scarecrow')
-emit(trim(remove_shadow(load('defenses/sprinkler'), 0.3)), 'def_sprinkler')
+# the sprinkler and snap trap are drawn in code (src/render/sprites.ts): the generated ones didn't read
 emit(trim(oak(load('defenses/turret'))), 'def_turret')
 emit(trim(load('defenses/doghouse')), 'def_doghouse')
-trap = trim(load('defenses/trap_open'))
-emit(trap, 'def_trap_open')
-emit(trap.transpose(Image.FLIP_LEFT_RIGHT), 'def_trap_shut')
 
 # --- scenery
 for name in ['farmhouse', 'tree_oak', 'tree_apple', 'bush', 'rocks', 'flowers', 'stump', 'haybale', 'crater', 'burrow', 'pond']:

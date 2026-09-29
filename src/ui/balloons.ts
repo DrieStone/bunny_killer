@@ -128,7 +128,7 @@ export class Tutorial {
   /** Called every frame; shows the balloon for the current step. */
   update(g: Game, dt: number, modalOpen: boolean): void {
     if (!this.active) return;
-    if (modalOpen || g.phase === 'title' || g.phase === 'gameover') {
+    if (modalOpen || g.phase === 'title' || g.phase === 'gameover' || g.phase === 'victory') {
       if (this.balloons.visibleKey?.startsWith('tut')) this.balloons.hide();
       return;
     }
@@ -159,7 +159,7 @@ export class Tutorial {
     switch (this.step) {
       case 0:
         show(document.querySelector<HTMLElement>('#seed-items .item:nth-child(3)'),
-          '<b>Welcome to the farm!</b> Pick a seed (Carrots are a good start), then click your plot to plant it. Drag to plant a whole row.');
+          '<b>Welcome to the farm!</b> Pick a seed (Carrots are a good start), then click your tilled soil to plant it. Drag to plant a whole row.');
         break;
       case 1:
         show(center, 'Nice! Plant a few more. Bunnies will come for them, so it pays to have extras.');
@@ -170,7 +170,7 @@ export class Tutorial {
       case 3: {
         const b = g.bunnies.find((x) => g.isSurfaced(x));
         if (b) show(tileOnPage(this.canvas, b.x - 0.5, b.y - 0.8), '<b>Here they come!</b> Click a bunny to hit it with your sling.');
-        else show(center, 'Watch the edges of the field. The red arrows showed where bunnies will pop out.');
+        else show(center, 'Watch the burrows at the edge of the field. That\'s where the bunnies pop out.');
         break;
       }
       case 4:

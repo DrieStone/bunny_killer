@@ -1,5 +1,5 @@
 // Tiny pixel-art toolkit: build sprites from text rows or drawing calls, auto-outline them,
-// and a 3x5 bitmap font for in-world numbers.
+// and a 5x7 bitmap font for in-world text.
 
 export const OUTLINE = '#2a1b14';
 
@@ -118,52 +118,95 @@ export function sprite(rows: string[], pal: Palette, outline: string | null = OU
   return (outline ? g.outlined(outline) : g).canvas();
 }
 
-// ---------------------------------------------------------------- 3x5 font
+// ---------------------------------------------------------------- 5x7 font
 
-// each glyph: five rows of three, top to bottom
+// Each glyph is seven rows, top to bottom; the row length is the glyph's width (the font is proportional).
 const GLYPHS: Record<string, string> = {
-  A: '.#. #.# ### #.# #.#', B: '##. #.# ##. #.# ##.', C: '.## #.. #.. #.. .##', D: '##. #.# #.# #.# ##.',
-  E: '### #.. ##. #.. ###', F: '### #.. ##. #.. #..', G: '.## #.. #.# #.# .##', H: '#.# #.# ### #.# #.#',
-  I: '### .#. .#. .#. ###', J: '..# ..# ..# #.# .#.', K: '#.# #.# ##. #.# #.#', L: '#.. #.. #.. #.. ###',
-  M: '#.# ### ### #.# #.#', N: '##. #.# #.# #.# #.#', O: '.#. #.# #.# #.# .#.', P: '##. #.# ##. #.. #..',
-  Q: '.#. #.# #.# ##. .##', R: '##. #.# ##. #.# #.#', S: '.## #.. .#. ..# ##.', T: '### .#. .#. .#. .#.',
-  U: '#.# #.# #.# #.# ###', V: '#.# #.# #.# #.# .#.', W: '#.# #.# ### ### #.#', X: '#.# #.# .#. #.# #.#',
-  Y: '#.# #.# .#. .#. .#.', Z: '### ..# .#. #.. ###',
-  '0': '### #.# #.# #.# ###', '1': '.#. ##. .#. .#. ###', '2': '##. ..# .#. #.. ###', '3': '##. ..# .#. ..# ##.',
-  '4': '#.# #.# ### ..# ..#', '5': '### #.. ##. ..# ##.', '6': '.## #.. ### #.# ###', '7': '### ..# .#. .#. .#.',
-  '8': '### #.# ### #.# ###', '9': '### #.# ### ..# ##.',
-  '+': '... .#. ### .#. ...', '-': '... ... ### ... ...', '!': '.#. .#. .#. ... .#.', '¢': '.#. ### #.. ### .#.',
-  '?': '##. ..# .#. ... .#.', '.': '... ... ... ... .#.', ':': '... .#. ... .#. ...', x: '... #.# .#. #.# ...',
-  '/': '..# ..# .#. #.. #..', ' ': '... ... ... ... ...', "'": '.#. .#. ... ... ...',
+  A: '.###. #...# #...# ##### #...# #...# #...#', B: '####. #...# #...# ####. #...# #...# ####.',
+  C: '.###. #...# #.... #.... #.... #...# .###.', D: '####. #...# #...# #...# #...# #...# ####.',
+  E: '#### #... #... ###. #... #... ####', F: '#### #... #... ###. #... #... #...',
+  G: '.###. #...# #.... #.### #...# #...# .###.', H: '#...# #...# #...# ##### #...# #...# #...#',
+  I: '### .#. .#. .#. .#. .#. ###', J: '..## ...# ...# ...# ...# #..# .##.',
+  K: '#...# #..#. #.#.. ##... #.#.. #..#. #...#', L: '#... #... #... #... #... #... ####',
+  M: '#...# ##.## #.#.# #.#.# #...# #...# #...#', N: '#...# #...# ##..# #.#.# #..## #...# #...#',
+  O: '.###. #...# #...# #...# #...# #...# .###.', P: '####. #...# #...# ####. #.... #.... #....',
+  Q: '.###. #...# #...# #...# #.#.# #..#. .##.#', R: '####. #...# #...# ####. #.#.. #..#. #...#',
+  S: '.###. #...# #.... .###. ....# #...# .###.', T: '##### ..#.. ..#.. ..#.. ..#.. ..#.. ..#..',
+  U: '#...# #...# #...# #...# #...# #...# .###.', V: '#...# #...# #...# #...# #...# .#.#. ..#..',
+  W: '#...# #...# #...# #.#.# #.#.# ##.## #...#', X: '#...# #...# .#.#. ..#.. .#.#. #...# #...#',
+  Y: '#...# #...# .#.#. ..#.. ..#.. ..#.. ..#..', Z: '##### ....# ...#. ..#.. .#... #.... #####',
+  '0': '.###. #...# #...# #...# #...# #...# .###.', '1': '.#. ##. .#. .#. .#. .#. ###',
+  '2': '.###. #...# ....# ..##. .#... #.... #####', '3': '####. ....# ....# .###. ....# ....# ####.',
+  '4': '...#. ..##. .#.#. #..#. ##### ...#. ...#.', '5': '##### #.... ####. ....# ....# #...# .###.',
+  '6': '..##. .#... #.... ####. #...# #...# .###.', '7': '##### ....# ...#. ..#.. .#... .#... .#...',
+  '8': '.###. #...# #...# .###. #...# #...# .###.', '9': '.###. #...# #...# .#### ....# ...#. .##..',
+  '+': '..... ..#.. ..#.. ##### ..#.. ..#.. .....', '-': '... ... ... ### ... ... ...',
+  '!': '# # # # # . #', '?': '.###. #...# ....# ...#. ..#.. ..... ..#..',
+  '.': '. . . . . . #', ',': '.. .. .. .. .. .# #.', ':': '. . # . . # .', "'": '# # . . . . .',
+  '/': '..# ..# .#. .#. .#. #.. #..', '%': '##..# ##..# ...#. ..#.. .#... #..## #..##',
+  '(': '.# #. #. #. #. #. .#', ')': '#. .# .# .# .# .# #.', '=': '.... .... #### .... #### .... ....',
+  '¢': '..#.. .###. #.#.# #.#.. #.#.# .###. ..#..', '×': '..... #...# .#.#. ..#.. .#.#. #...# .....',
+  ' ': '.. .. .. .. .. .. ..',
 };
 
-const FONT: Record<string, boolean[]> = {};
-for (const [ch, rows] of Object.entries(GLYPHS)) FONT[ch] = [...rows.replace(/ /g, '')].map((c) => c === '#');
+export const FONT_H = 7;
+
+interface Glyph {
+  w: number;
+  px: boolean[];
+}
+const FONT: Record<string, Glyph> = {};
+for (const [ch, rows] of Object.entries(GLYPHS)) {
+  const r = rows.split(' ');
+  FONT[ch] = { w: r[0].length, px: [...r.join('')].map((c) => c === '#') };
+}
+const glyph = (ch: string): Glyph => FONT[ch] ?? FONT['?'];
 
 export function textWidth(text: string, scale = 1): number {
-  return text.length === 0 ? 0 : (text.length * 4 - 1) * scale;
+  let w = -1;
+  for (const ch of text.toUpperCase()) w += glyph(ch).w + 1;
+  return Math.max(0, w) * scale;
 }
 
-/** Draw pixel text with its top-left at (x, y). */
+function paintText(
+  ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, scale: number,
+): void {
+  ctx.fillStyle = color;
+  let cx = x;
+  for (const ch of text.toUpperCase()) {
+    const g = glyph(ch);
+    for (let i = 0; i < g.px.length; i++) {
+      if (g.px[i]) ctx.fillRect(cx + (i % g.w) * scale, y + ((i / g.w) | 0) * scale, scale, scale);
+    }
+    cx += (g.w + 1) * scale;
+  }
+}
+
+// Text is drawn a lot (floating numbers, labels), so each string is rendered once and reused.
+const textCache = new Map<string, HTMLCanvasElement>();
+
+/** Draw pixel text with its top-left at (x, y), with an optional outline all the way around. */
 export function drawText(
   ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string,
   outline: string | null = OUTLINE, scale = 1, outlineWidth = scale,
 ): void {
-  const up = text.toUpperCase();
-  const plot = (col: string, ox: number, oy: number) => {
-    ctx.fillStyle = col;
-    for (let n = 0; n < up.length; n++) {
-      const g = FONT[up[n]] ?? FONT['?'];
-      for (let i = 0; i < 15; i++) {
-        if (!g[i]) continue;
-        ctx.fillRect(x + (n * 4 + (i % 3)) * scale + ox, y + ((i / 3) | 0) * scale + oy, scale, scale);
+  if (!text) return;
+  const pad = outline ? outlineWidth : 0;
+  const key = `${text}|${color}|${outline}|${scale}|${outlineWidth}`;
+  let c = textCache.get(key);
+  if (!c) {
+    if (textCache.size > 400) textCache.clear();
+    c = document.createElement('canvas');
+    c.width = textWidth(text, scale) + pad * 2;
+    c.height = FONT_H * scale + pad * 2;
+    const tc = c.getContext('2d')!;
+    if (outline) {
+      for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        paintText(tc, text, pad + ox * outlineWidth, pad + oy * outlineWidth, outline, scale);
       }
     }
-  };
-  if (outline) {
-    for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      plot(outline, ox * outlineWidth, oy * outlineWidth);
-    }
+    paintText(tc, text, pad, pad, color, scale);
+    textCache.set(key, c);
   }
-  plot(color, 0, 0);
+  ctx.drawImage(c, Math.round(x) - pad, Math.round(y) - pad);
 }
