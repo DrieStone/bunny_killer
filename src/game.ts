@@ -1269,6 +1269,12 @@ export class Game {
 
   // ------------------------------------------------------------ the Farm Legacy: landmarks, after the win
 
+  /** The burrow the day's next bunny comes out of (null if it's the crater's, or they've all come). */
+  nextBurrow(): Burrow | null {
+    const e = this.wave[this.spawnIdx];
+    return e && e.burrow >= 0 ? this.burrows[e.burrow] ?? null : null;
+  }
+
   /** Is this landmark standing? */
   landmark(kind: LandmarkKind): boolean {
     return LEGACY.findIndex((l) => l.kind === kind) < this.legacy;

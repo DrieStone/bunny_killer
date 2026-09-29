@@ -25,6 +25,11 @@ export class Balloons {
 
   /** Point a balloon at an element or page coordinate. `key` avoids re-laying out an unchanged balloon. */
   show(anchor: Anchor, html: string, key = html): void {
+    // something that isn't on screen (in a store tab that's closed) has nowhere to point: don't fall into a corner
+    if (anchor instanceof HTMLElement && anchor.getClientRects().length === 0) {
+      if (this.shownFor === key) this.hide();
+      return;
+    }
     if (this.shownFor === key && !this.el.hidden) {
       this.place(anchor);
       return;
@@ -153,12 +158,17 @@ export class Tutorial {
       return;
     }
 
-    const show = (anchor: Anchor | null, html: string) => {
-      if (anchor) this.balloons.show(anchor, html, `tut${this.step}`);
+    const show = (anchor: Anchor | null, html: string, part = '') => {
+      if (anchor) this.balloons.show(anchor, html, `tut${this.step}${part}`);
+    };
+    // point at a store item if its tab is open, or else at the tab
+    const inStore = (selector: string, tab: string) => {
+      const el = document.querySelector<HTMLElement>(selector);
+      return el && el.getClientRects().length ? el : document.querySelector<HTMLElement>(`#store-tabs .tab[data-tab="${tab}"]`);
     };
     switch (this.step) {
       case 0:
-        show(document.querySelector<HTMLElement>('#seed-items .item:nth-child(3)'),
+        show(inStore('#seed-items .item[data-key="crop:carrot"]', 'seeds'),
           '<b>Welcome to the farm!</b> Pick a seed (Carrots are a good start), then click your tilled soil to plant it. Drag to plant a whole row.');
         break;
       case 1:
@@ -168,9 +178,15 @@ export class Tutorial {
         show($('btn-start'), 'When you\'re ready, start the day. Crops grow while the sun is up.');
         break;
       case 3: {
-        const b = g.bunnies.find((x) => g.isSurfaced(x));
-        if (b) show(tileOnPage(this.canvas, b.x - 0.5, b.y - 0.8), '<b>Here they come!</b> Click a bunny to hit it with your sling.');
-        else show(center, 'Watch the burrows at the edge of the field. That\'s where the bunnies pop out.');
+        const b = g.bunnies.find((x) => !x.dead && g.isSurfaced(x));
+        if (b) {
+          show(tileOnPage(this.canvas, b.x - 0.5, b.y - 0.8), '<b>Here they come!</b> Click a bunny to hit it with your sling.', 'bunny');
+          break;
+        }
+        // nobody up yet: point at the burrow the next one comes out of
+        const hole = g.nextBurrow() ?? g.burrows[0];
+        if (hole) show(tileOnPage(this.canvas, hole.x, hole.y), 'Watch the burrows at the edge of the field. That\'s where the bunnies pop out.', 'burrow');
+        else this.balloons.hide();
         break;
       }
       case 4:
@@ -181,8 +197,8 @@ export class Tutorial {
           'The <b>Scouting Report</b> shows how many bunnies are coming, what kinds, and the weather.');
         break;
       case 6:
-        show(document.querySelector<HTMLElement>('#def-items'),
-          'Every bunny that gets home fed brings a friend tomorrow. <b>Defenses</b> help: try a Snap Trap next to some Lettuce as bait.');
+        show(inStore('#def-items .item[data-key="defense:trap"]', 'defense'),
+          'Every bunny that gets home fed brings a friend tomorrow. <b>Defenses</b> help: in the Defense tab, try a Snap Trap next to some Lettuce as bait.');
         break;
     }
   }

@@ -335,6 +335,7 @@ export class UI {
         });
         el.addEventListener('mouseenter', () => { this.hoverItem = item; });
         el.addEventListener('mouseleave', () => { this.hoverItem = null; });
+        el.dataset.key = keyOf(item); // for the tutorial to point at
         host.appendChild(el);
         this.itemEls.set(keyOf(item), el);
         this.items.set(keyOf(item), item);
