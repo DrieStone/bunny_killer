@@ -1,5 +1,5 @@
 // Achievements: things worth a small trophy. The checks read the game; main.ts keeps what's been earned.
-import { EVENTS, MAX_LEVEL } from './config';
+import { LEGACY, MAX_LEVEL } from './config';
 import type { Game } from './game';
 
 export interface Achievement {
@@ -20,11 +20,13 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'river', name: 'Bridge Keeper', text: 'Seal the crater on River Bend.' },
   { id: 'orchard', name: 'Orchardist', text: 'Seal the crater on Old Orchard.' },
   { id: 'endless_50', name: 'Stayed On', text: 'Keep farming after the win, to Day 50.' },
+  { id: 'landmark', name: 'Pillar of the Community', text: 'Build a landmark of the Farm Legacy.' },
+  { id: 'legacy', name: 'Finest Farm in the County', text: 'Complete the Farm Legacy: all five landmarks.' },
   { id: 'golden_1', name: 'Pot of Gold', text: 'Bonk a golden bunny.' },
   { id: 'golden_5', name: 'Gold Rush', text: 'Bonk 5 golden bunnies on one farm.' },
   { id: 'order_1', name: 'Special Delivery', text: 'Fill an order from town.' },
   { id: 'order_5', name: 'Local Supplier', text: 'Fill 5 orders on one farm.' },
-  { id: 'fair', name: 'Blue Ribbon', text: `Sell ${EVENTS.fairCap} crops to the County Fair in one evening.` },
+  { id: 'fair', name: 'Blue Ribbon', text: 'Sell 20 crops to the County Fair in one evening.' },
   { id: 'merchant', name: 'Haggler', text: 'Buy something off the travelling merchant\'s cart.' },
   { id: 'combo', name: 'Teamwork', text: 'See two defenses pull off a combo.' },
   { id: 'five_star', name: 'Five Stars', text: 'Upgrade a defense all the way.' },
@@ -59,11 +61,13 @@ export function satisfied(g: Game, noticed: Noticed, evening: boolean): string[]
     river: won && g.map === 'river',
     orchard: won && g.map === 'orchard',
     endless_50: won && g.round >= 50,
+    landmark: g.legacy >= 1,
+    legacy: g.legacy >= LEGACY.length,
     golden_1: (s.golden ?? 0) >= 1,
     golden_5: (s.golden ?? 0) >= 5,
     order_1: (s.orders ?? 0) >= 1,
     order_5: (s.orders ?? 0) >= 5,
-    fair: evening && rs.fairSold >= EVENTS.fairCap,
+    fair: evening && rs.fairSold >= 20,
     merchant: g.eventBought.length > 0,
     combo: !!noticed.combo,
     five_star: g.tiles.some((t) => (t.structure?.level ?? 0) >= MAX_LEVEL),

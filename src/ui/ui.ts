@@ -2,11 +2,12 @@
 import {
   ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, COMBO_TEXT, DAILY, CROP_ORDER, cropPlural, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
   defenseStats, FARM, FARM_ORDER, type FarmUpgrade, firstRound, fruitsPerDay, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost,
-  EVENTS, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
+  EVENTS, FAME, type LandmarkKind, LEGACY, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
 } from '../config';
 import type { Game } from '../game';
 import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, merchantCart, monoIcons, repairIcon, spriteImg, trophyIcon, weaponIcon } from '../render/icons';
+import { landmarkArt } from '../render/landmarks';
 import { monoSprite } from '../render/mono';
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
@@ -31,6 +32,7 @@ export interface UiHooks {
   skipDay(): void;
   autoSkip(): boolean; // skip by itself whenever it's all clear
   setAutoSkip(on: boolean): void;
+  legacyComplete(): void; // the fifth landmark went up
   volume(kind: 'sfx' | 'music'): number; // 0-7
   setVolume(kind: 'sfx' | 'music', level: number): void;
   monochrome(): boolean; // 1993 Mode: black and white
@@ -566,6 +568,10 @@ export class UI {
 
   private fundProject(): void {
     const g = this.game;
+    if (g.sealed) {
+      this.fundLegacy();
+      return;
+    }
     const problem = g.projectProblem();
     if (problem) {
       g.emit({ t: 'error', msg: problem });
@@ -579,6 +585,43 @@ export class UI {
       return;
     }
     this.confirmCap();
+  }
+
+  /** Build the next landmark of the Farm Legacy. The fifth is the finale. */
+  private fundLegacy(): void {
+    const g = this.game;
+    const problem = g.legacyProblem();
+    if (problem) {
+      g.emit({ t: 'error', msg: problem });
+      return;
+    }
+    const built = LEGACY[g.legacy];
+    if (!g.fundLegacy()) return;
+    this.hooks.changed();
+    if (g.legacy === LEGACY.length) this.hooks.legacyComplete();
+    else this.banner(`${built.name} built!`, `${LEGACY_LINE[built.kind]} Word gets around: more bunnies are coming.`, 3);
+  }
+
+  /** The fifth landmark: the Farm Legacy is complete. */
+  showLegacyComplete(): void {
+    const g = this.game;
+    this.open('legacy', `
+      <div class="icon-row">${spriteImg(landmarkArt('statue'), 2)}
+      <div><h1>The finest farm in the county</h1>
+      <p>All five landmarks stand. From the stand by the road to the golden slingshot, everyone in the county knows
+      whose farm this is.</p>
+      <table>
+        <tr><td>Crater sealed</td><td class="n">Day ${g.stats.sealedOn ?? '?'}</td></tr>
+        <tr><td>Legacy complete</td><td class="n">Day ${g.round}</td></tr>
+        <tr><td>Harvested in all</td><td class="n">${money(g.stats.harvest)}</td></tr>
+        <tr><td>Bunnies bonked</td><td class="n">${g.stats.kills.toLocaleString('en-US')}</td></tr>
+        <tr><td>Golden bunnies</td><td class="n">${g.stats.golden ?? 0}</td></tr>
+      </table></div></div>
+      <div class="buttons"><button class="btn" data-act="title">Title Screen</button>
+        <button class="btn default" data-act="keep">Keep Farming</button></div>`, {
+      title: () => this.hooks.toTitle(),
+      keep: () => this.dismiss(),
+    }, { Enter: 'keep', Escape: 'keep' });
   }
 
   // ------------------------------------------------------------ per-frame refresh
@@ -779,6 +822,16 @@ export class UI {
   /** The Crater Project button: how far along it is, and what the next stage needs. */
   private updateProject(): void {
     const g = this.game;
+    const b = $<HTMLButtonElement>('btn-project');
+    if (g.sealed) {
+      // after the win, the same line builds the Farm Legacy
+      const next = LEGACY[g.legacy];
+      const pips = LEGACY.map((_, n) => `<span class="pip${n < g.legacy ? ' done' : ''}"></span>`).join('');
+      this.set('btn-project', `<span class="pips">${pips}</span>${next ? `<b>${next.name}</b> · ${money(next.cost)}` : '<b>Legacy complete</b>'}`);
+      b.classList.toggle('ready', g.legacyProblem() === null);
+      b.classList.remove('night');
+      return;
+    }
     const stage = PROJECT[g.project];
     const pips = PROJECT.map((_, n) => `<span class="pip${n < g.project ? ' done' : ''}"></span>`).join('');
     let label: string;
@@ -788,7 +841,6 @@ export class UI {
       label = `<b>${stage.name}</b> · Bucks ${g.stats.bossesBeaten}/${stage.bucks}`;
     } else label = `<b>${stage.name}</b> · ${money(g.projectCost() ?? 0)}`;
     this.set('btn-project', `<span class="pips">${pips}</span>${label}`);
-    const b = $<HTMLButtonElement>('btn-project');
     b.classList.toggle('ready', g.projectProblem() === null);
     b.classList.toggle('night', g.lastNight);
   }
@@ -948,6 +1000,14 @@ export class UI {
     const g = this.game;
     switch (key) {
       case 'project': {
+        if (g.sealed) {
+          const next = LEGACY[g.legacy];
+          const boxes = LEGACY.map((_, n) => (n < g.legacy ? '■' : '□')).join('');
+          return `<div class="title">The Farm Legacy ${boxes}</div>` + (next
+            ? `<p><b>${next.name}</b>, ${money(next.cost)}. ${next.blurb}</p>` +
+              `<p class="hint">Each landmark makes the farm better known: ${Math.round(FAME * 100)}% more bunnies a day.</p>`
+            : '<p>All five landmarks stand: the finest farm in the county.</p>');
+        }
         const steps = PROJECT.map((st, n) => `<li${n < g.project ? ' class="done"' : ''}><b>${st.name}</b> ${money(st.cost)} · ` +
           `${st.bucks === 1 ? '1 Buck' : `${st.bucks} Bucks`}</li>`).join('');
         const problem = g.projectProblem();
@@ -1232,7 +1292,8 @@ export class UI {
       <p><b>The goal:</b> save the farm by sealing the crater the bunnies keep coming out of. Fund the three stages of the
       <b>Crater Project</b> in the Farm Store. Each stage opens up after you beat an Asteroid Buck, which comes on the last day
       of every season, or throw a <b>Smoke Bomb</b> into the crater to bring one out today. The last stage starts
-      <b>The Last Night</b>: bonk every Buck before dawn to win. Do it once and <b>Hard Mode</b> opens on the title screen.</p>
+      <b>The Last Night</b>: bonk every Buck before dawn to win. Do it once and <b>Hard Mode</b> opens on the title screen,
+      and your farm can go on to build the <b>Farm Legacy</b>: five landmarks, each with a perk.</p>
       <div class="help-cols">
         <div>
           <h2>Morning: plan</h2>
@@ -1624,7 +1685,8 @@ export class UI {
     const list = this.hooks.scores();
     const rows = list.length
       ? list.map((e, n) => `<tr${e.sealed ? ' class="sealed"' : ''}><td class="n">${n + 1}.</td><td class="n">${e.score}¢</td>` +
-          `<td>${e.sealed ? `<b>Sealed the crater</b> in ${e.days} days${e.endless ? `, farmed on to day ${e.endless}` : ''}`
+          `<td>${e.sealed ? `<b>Sealed the crater</b> in ${e.days} days${e.endless ? `, farmed on to day ${e.endless}` : ''}` +
+            `${e.legacy === LEGACY.length ? ' <span class="hard">LEGACY</span>' : e.legacy ? `, ${e.legacy} ${e.legacy === 1 ? 'landmark' : 'landmarks'}` : ''}`
             : `${e.days} ${e.days === 1 ? 'day' : 'days'}${e.retired ? ', retired' : ''}`}` +
           `${e.hard ? ' <span class="hard">HARD</span>' : ''}` +
           `</td><td class="n">${e.kills} bonked</td><td class="n">${e.date}</td></tr>`).join('')
@@ -1689,6 +1751,15 @@ function logoText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
     cx += (g[0].length + 1.5) * scale;
   }
 }
+
+/** What each landmark does, in a line, for the banner when it goes up. */
+const LEGACY_LINE: Record<LandmarkKind, string> = {
+  stand: 'Every crop fetches 10% more, and town wants something every day.',
+  windmill: 'Water for every row.',
+  bell: 'At noon it rings, and the bunnies run.',
+  fairground: 'The fair comes at the end of every week.',
+  statue: '',
+};
 
 /** The title logo: pixel-font lettering over a little farm scene, drawn with the game's own sprites. */
 function makeLogo(): HTMLCanvasElement {

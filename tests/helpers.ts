@@ -79,6 +79,9 @@ export function botPlan(g: Game): void {
   const cost = g.projectCost();
   const reserve = g.project === PROJECT.length - 1 ? 600 : 250;
   if (cost !== null && !siege && g.projectProblem() === null && g.credits >= cost + reserve + seedMoney()) g.fundProject();
+  // after the win: the Farm Legacy, one landmark at a time, keeping a cushion
+  const landmark = g.legacyCost();
+  if (landmark !== null && !siege && g.credits >= landmark + 2000 + seedMoney()) g.fundLegacy();
   // once the next stage is only a matter of money, save up: no new turrets or upgrades past the basics.
   // And never spend the seed money: every empty tile needs planting.
   const saving = !siege && cost !== null && g.projectProblem() === 'Not enough credits.';

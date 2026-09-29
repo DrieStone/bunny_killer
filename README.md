@@ -4,7 +4,8 @@ A farm sim and tower defense game, following Bunny Killer II (1993) and Bunny Ki
 Plant crops, set up and upgrade defenses, bonk bunnies with your sling, and harvest at sundown, through
 seasons and weather. The store opens up as you play. Crop prices move with the market, town sends orders,
 and some days bring a county fair, hail, a drought, or a travelling merchant. To win, fund the Crater
-Project and survive The Last Night; that opens Hard Mode, and you can keep farming after. There are three
+Project and survive The Last Night; that opens Hard Mode, and you can keep farming after to build the Farm
+Legacy, five landmarks that each change the farm. There are three
 farms to pick from, a Daily Farm that's the same for everyone each day, achievements, and a Bunny Guide.
 Classic Mode brings back the original shooting gallery, and 1993 Mode shows it all in black and white.
 It plays on touch screens too. The full design is in [DESIGN.md](DESIGN.md).
@@ -48,14 +49,14 @@ straight from disk (they block its script over `file://`), which is what the one
 | `F` / `M` / `N` | day speed 1×/2×/4× / sound / music |
 | Touch | tap where you'd click; drag to paint a row. A tap near a bunny counts as a hit on it. |
 
-The Game menu also has **Always Skip When All Clear**, **Daily Farm…**, and **1993 Mode**; the Help menu has the
+The Game menu also has **Sound…** (volume sliders), **Always Skip When All Clear**, **Daily Farm…**, and **1993 Mode**; the Help menu has the
 **Bunny Guide…**, **Achievements…**, and **Replay the Intro**.
 
 ## Development
 
 ```sh
 npm test                                       # headless rules tests (pathfinding, economy, unlocks, the Crater Project, market,
-                                               # orders, events, combos, golden bunnies, farms, the Daily Farm, achievements, saves)
+                                               # orders, events, combos, golden bunnies, farms, the Daily Farm, the Farm Legacy, achievements, saves)
 BALANCE=1 SEED=7 npm test -- tests/balance.test.ts   # 70-day campaigns for four bot skill levels (SEED, DAYS=n, HARD=1)
 BALANCE=1 SEED=7 REPS=6 npm test -- tests/balance.test.ts   # six seeded replays per skill, one summary line each
 npm run typecheck
@@ -79,6 +80,7 @@ npm run typecheck
   - `scripts/farms.mjs`: the farm picker, River Bend, and Old Orchard
   - `scripts/golden.mjs`, `events.mjs`, `combos.mjs`: golden bunnies, the day's events (fair, hail, drought, the merchant's cart), and combos
   - `scripts/victory.mjs`: the cap coming down, the fireworks, and Keep Farming
+  - `scripts/legacy.mjs`: the Farm Legacy: the store line, landmarks going up, the finale, the noon bell, all three farms
   - `scripts/daily.mjs`, `trophies.mjs`: the Daily Farm and its results, achievements, and the Bunny Guide
   - `scripts/touch.mjs`: a morning and a day played with taps, on an iPad and on a phone held sideways
   - `scripts/retro.mjs`: 1993 Mode, and how long its black-and-white pass takes

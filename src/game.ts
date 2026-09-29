@@ -1,10 +1,10 @@
 // Game state and rules. No DOM or canvas in here, so it runs headless in tests.
 import {
-  ANGER, BOSS_BOUNTY, BOSS_EVERY, BOSS_HP_PER_APPEARANCE, BREED_CAP, BUNNIES, type BunnyKind, bunnyHpScale, burrowCount,
+  ANGER, BELL, BOSS_BOUNTY, BOSS_EVERY, BOSS_HP_PER_APPEARANCE, BREED_CAP, BUNNIES, type BunnyKind, bunnyHpScale, burrowCount,
   CAP_RETRY, COLS, CROPS, CROP_ORDER, type CropKind, DEFENSES, type DefenseKind, defenseStats, FARM, FARM_ORDER,
-  CUSTOMERS, cropPlural, DAILY, type EventKind, EVENTS, type FarmUpgrade, MERCHANT, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
+  CUSTOMERS, cropPlural, DAILY, type EventKind, EVENTS, FAME, type FarmUpgrade, type LandmarkKind, LEGACY, MERCHANT, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
   LOT_COUNT, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, ORDERS, ripenDays, SMOKE_BOMB, POP_SECONDS, PROJECT, REPAIR_RATE, ROUND_SECONDS, ROWS, type Season, seasonOf, SEASONS,
-  SELL_BACK, SOIL_GROWTH, SPAWN_WINDOW, SPRINKLER_GROWTH, STALL_PRICE, START_CREDITS, START_LOTS, SUNDOWN_MAX_SECONDS,
+  SELL_BACK, SOIL_GROWTH, SPAWN_WINDOW, SPRINKLER_GROWTH, STALL_PRICE, STAND_PRICE, START_CREDITS, START_LOTS, SUNDOWN_MAX_SECONDS,
   TILL_COST, type Unlock, UNLOCK_RULE, unlockName, UNLOCKS, upgradeCost, waveSize, waveWeights, WEAPON_LEVELS,
   WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, type Weather, WEATHER, WEATHER_ODDS, WELL_GROWTH,
 } from './config';
@@ -17,7 +17,7 @@ import type {
   Structure, Tile,
 } from './types';
 import {
-  CRATER, CRATER_SPAWN, idx, inCrater, inMap, inRect, lotOf, lotOfTile, lotRect, lotTiles, type MapKind, N, OBSTACLE, pickBurrows,
+  CRATER, CRATER_SPAWN, idx, inCrater, inMap, inRect, landmarkSpot, lotOf, lotOfTile, lotRect, lotTiles, type MapKind, N, OBSTACLE, pickBurrows,
   type Rect, setMap, tileX, tileY,
 } from './world';
 
@@ -64,6 +64,7 @@ export interface SaveData {
   runId?: string; // one per farm, so a farm kept after its win updates its high score instead of adding another
   daily?: string; // a Daily Farm: its date (YYYY-MM-DD)
   dailyNumber?: number;
+  legacy?: number; // landmarks of the Farm Legacy built, after the win
 }
 
 /**
@@ -179,6 +180,9 @@ export class Game {
   smoked = false; // a smoke bomb went into the crater this morning: a Buck comes out today
   goldenAt = -1; // when today's golden bunny makes its dash (seconds into the day), or -1
   order: Order | null = null; // an order from town, if one is open
+  legacy = 0; // landmarks of the Farm Legacy standing (after the win)
+  belling = 0; // seconds left of the noon bell, while every bunny runs for home
+  private rang = false; // the bell has rung today
   newOrder = false; // it was posted this morning
   event: DayEvent | null = null; // something different about today
   eventBought: string[] = []; // deals already taken off the merchant's cart
@@ -264,6 +268,7 @@ export class Game {
     this.lastNight = false;
     this.smoked = false;
     this.order = null;
+    this.legacy = 0;
     this.unlocked = new Set();
     this.market = evenMarket(1);
     this.glut = evenMarket(0);
@@ -299,7 +304,7 @@ export class Game {
     this.spawnIdx = 0;
     // its own dice, so the rest of the day plays out the same with or without it
     const gold = makeRng(hashSeed(this.seed, this.round, 777));
-    this.goldenAt = !this.lastNight && this.round >= GOLDEN.from && gold() < GOLDEN.chance
+    this.goldenAt = !this.lastNight && this.round >= GOLDEN.from && gold() < (this.landmark('statue') ? 1 : GOLDEN.chance)
       ? 6 + gold() * (ROUND_SECONDS * SPAWN_WINDOW - 12) : -1;
     this.costDirty = true;
     if (newDay && this.round > 1) this.moveMarket();
@@ -307,6 +312,8 @@ export class Game {
     if (newDay && !this.order) this.postOrder();
     this.hail = 0;
     this.hailFell = false;
+    this.belling = 0;
+    this.rang = false;
     const fresh = this.refreshUnlocks();
     if (newDay) {
       this.event = null; // (yesterday's drought mustn't color today's choices)
@@ -340,7 +347,7 @@ export class Game {
     const anger = this.sealed ? 0 : this.project; // a sealed crater sends nobody
     const m = MODES[this.mode];
     const scale = SEASONS[this.season].bunnies * WEATHER[this.weather].bunnies * (1 + ANGER.wave * m.anger * anger) *
-      (this.lastNight ? 1.25 : 1) * m.waves;
+      (this.lastNight ? 1.25 : 1) * m.waves * (1 + FAME * this.legacy);
     const count = Math.max(1, Math.round(waveSize(this.round) * scale)) + this.breedBonus;
     const weights = waveWeights(this.round, this.mode);
     const total = weights.reduce((s, [, w]) => s + w, 0);
@@ -546,6 +553,13 @@ export class Game {
       }
       if (this.event?.kind === 'hail' && !this.hailFell && this.time >= (this.event.at ?? 0)) this.startHail();
       if (this.hail > 0) this.hail = Math.max(0, this.hail - dt);
+      if (this.landmark('bell') && !this.rang && this.time >= ROUND_SECONDS * BELL.at) {
+        this.rang = true;
+        this.belling = BELL.seconds;
+        const [x, y] = landmarkSpot('bell');
+        this.emit({ t: 'bell', x: x + 0.5, y: y + 1 });
+      }
+      if (this.belling > 0) this.belling = Math.max(0, this.belling - dt);
       this.growCrops(dt);
       if (this.time >= ROUND_SECONDS) {
         this.phase = 'sundown';
@@ -682,16 +696,20 @@ export class Game {
 
   /** Maybe something's different about today. Its own dice again. */
   private rollEvent(): DayEvent | null {
-    if (this.round < EVENTS.from || this.lastNight || this.isBossDay()) return null;
+    // with a fairground, the County Fair comes on the last day of every week
+    const fairDay = this.landmark('fairground') && this.round % 7 === 0 && !this.lastNight;
+    if (!fairDay && (this.round < EVENTS.from || this.lastNight || this.isBossDay())) return null;
     const r = makeRng(hashSeed(this.seed, this.round, 991));
-    if (r() > EVENTS.chance) return null;
-    let pick = r() * EVENTS.weights.reduce((sum, [, w]) => sum + w, 0);
     let kind: EventKind = 'fair';
-    for (const [k, w] of EVENTS.weights) {
-      pick -= w;
-      if (pick <= 0) {
-        kind = k;
-        break;
+    if (!fairDay) {
+      if (r() > EVENTS.chance) return null;
+      let pick = r() * EVENTS.weights.reduce((sum, [, w]) => sum + w, 0);
+      for (const [k, w] of EVENTS.weights) {
+        pick -= w;
+        if (pick <= 0) {
+          kind = k;
+          break;
+        }
       }
     }
     if (kind === 'fair') {
@@ -812,7 +830,7 @@ export class Game {
   private postOrder(): void {
     if (this.round < ORDERS.from || this.lastNight) return;
     const r = makeRng(hashSeed(this.seed, this.round, 881));
-    if (r() > ORDERS.chance) return;
+    if (r() > (this.landmark('stand') ? 1 : ORDERS.chance)) return;
     const options = CUSTOMERS.map((c) => ({ who: c.who, wants: c.wants.filter((k) => this.isUnlocked(k)) })).filter((c) => c.wants.length);
     if (!options.length) return;
     const c = options[Math.floor(r() * options.length)];
@@ -927,7 +945,7 @@ export class Game {
       }
     }
     const fair = this.event?.kind === 'fair' ? this.event.crop : undefined;
-    if (fair) this.roundStats.fairSold = Math.min(EVENTS.fairCap, sold[fair] ?? 0);
+    if (fair) this.roundStats.fairSold = Math.min(this.fairCap, sold[fair] ?? 0);
     // an open order counts whatever of its crop went to market tonight
     if (this.order) this.order.got = Math.min(this.order.want, this.order.got + (sold[this.order.kind] ?? 0));
     // what tonight's prices came to, and how much the market will remember tomorrow
@@ -962,7 +980,8 @@ export class Game {
     const over = Math.max(0, this.glut[kind] + sold - MARKET.glut);
     const sag = Math.max(MARKET.glutFloor, 1 - MARKET.glutDrop * over);
     const bonus = (1 + STALL_PRICE * this.farm.stall) * (1 + HYBRID_VALUE * this.hybrid[kind]) *
-      (this.event?.kind === 'fair' && this.event.crop === kind && sold < EVENTS.fairCap ? EVENTS.fairMult : 1);
+      (this.landmark('stand') ? 1 + STAND_PRICE : 1) *
+      (this.event?.kind === 'fair' && this.event.crop === kind && sold < this.fairCap ? EVENTS.fairMult : 1);
     return CROPS[kind].sellValue * SEASONS[this.season].sell * this.priceTrend(kind) * sag * bonus;
   }
 
@@ -1246,6 +1265,50 @@ export class Game {
     this.emit({ t: 'project', stage: this.project });
     this.emit({ t: 'buy' });
     return true;
+  }
+
+  // ------------------------------------------------------------ the Farm Legacy: landmarks, after the win
+
+  /** Is this landmark standing? */
+  landmark(kind: LandmarkKind): boolean {
+    return LEGACY.findIndex((l) => l.kind === kind) < this.legacy;
+  }
+
+  /** The next landmark's price, or null before the win or once all five stand. */
+  legacyCost(): number | null {
+    return this.sealed && this.legacy < LEGACY.length ? LEGACY[this.legacy].cost : null;
+  }
+
+  legacyProblem(): string | null {
+    if (!this.sealed) return 'Seal the crater first.';
+    if (this.legacy >= LEGACY.length) return 'The Farm Legacy is complete.';
+    if (this.phase !== 'planning') return 'Build in the morning.';
+    if (this.credits < LEGACY[this.legacy].cost) return 'Not enough credits.';
+    return null;
+  }
+
+  /** Build the next landmark. */
+  fundLegacy(): boolean {
+    const problem = this.legacyProblem();
+    if (problem) {
+      this.emit({ t: 'error', msg: problem });
+      return false;
+    }
+    const l = LEGACY[this.legacy];
+    this.credits -= l.cost;
+    this.roundStats.spent += l.cost;
+    this.legacy++;
+    if (this.legacy === LEGACY.length) this.stats.legacyOn = this.round;
+    this.costDirty = true; // the windmill waters everything
+    const [x, y] = landmarkSpot(l.kind);
+    this.emit({ t: 'landmark', x: x + 0.5, y: y + 1, kind: l.kind });
+    this.emit({ t: 'buy' });
+    return true;
+  }
+
+  /** The most of one crop a fair buys at its price in an evening. */
+  get fairCap(): number {
+    return EVENTS.fairCap * (this.landmark('fairground') ? 2 : 1);
   }
 
   place(item: ShopItem, i: number): boolean {
@@ -1697,7 +1760,8 @@ export class Game {
     const structural = this.costDirty;
     this.costDirty = false;
     this.costTimer = 1;
-    this.growthMult.fill(1);
+    // the windmill waters every row as well as a sprinkler would
+    this.growthMult.fill(this.landmark('windmill') ? (this.farm.well ? WELL_GROWTH : SPRINKLER_GROWTH) : 1);
     for (let i = 0; i < N; i++) {
       if (OBSTACLE[i]) {
         this.costWalk[i] = Infinity;
@@ -1763,6 +1827,7 @@ export class Game {
       event: this.event, eventBought: [...this.eventBought],
       market: { ...this.market }, glut: { ...this.glut }, wanted: { ...this.wanted },
       weapons: { ...this.weapons }, weapon: this.weapon, farm: { ...this.farm }, hybrid: { ...this.hybrid },
+      legacy: this.legacy || undefined,
     };
   }
 
@@ -1801,6 +1866,7 @@ export class Game {
     this.order = d.order && CROPS[d.order.kind] ? { ...d.order } : null;
     this.event = d.event ?? null;
     this.eventBought = [...(d.eventBought ?? [])];
+    this.legacy = d.stats.sealedOn === undefined ? 0 : clamp(d.legacy, LEGACY.length);
     // the cap never went on (unless it did, and this is a farm kept after its win)
     if (this.project === PROJECT.length && !this.lastNight && d.stats.sealedOn === undefined) this.project = PROJECT.length - 1;
     this.market = { ...evenMarket(1), ...d.market };

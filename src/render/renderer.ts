@@ -1,7 +1,7 @@
 // Draws the farm: a textured ground baked once per layout, y-sorted sprites with soft shadows,
 // particles, time-of-day lighting, and a little ambient life. World units are 32px tiles.
 import {
-  BUNNIES, COLS, COMBOS, CROPS, DEFENSES, type DefenseKind, defenseStats, LOT_COUNT, lotPrice, MAX_LEVEL, ROUND_SECONDS, ROWS, type Season, SMOKE_BOMB, TILE, WEAPONS,
+  BUNNIES, COLS, COMBOS, CROPS, DEFENSES, type DefenseKind, defenseStats, type LandmarkKind, LEGACY, LOT_COUNT, lotPrice, MAX_LEVEL, ROUND_SECONDS, ROWS, type Season, SMOKE_BOMB, TILE, WEAPONS,
   weaponStats,
   upgradeCost, WORLD_H, WORLD_W,
 } from '../config';
@@ -10,12 +10,13 @@ import { CLASSIC_RELOAD, CLASSIC_SECONDS } from '../classic';
 import type { Game } from '../game';
 import { hashSeed } from '../rng';
 import type { Bunny, Dog, GameEvent, ShopItem, Structure } from '../types';
-import { CRATER, currentMap, idx, inCrater, inMap, lotOfTile, lotRect, SCENERY, type Scenery, tileAt, tileX, tileY, WATER } from '../world';
+import { CRATER, currentMap, idx, inCrater, inMap, landmarkSpot, lotOfTile, lotRect, SCENERY, type Scenery, tileAt, tileX, tileY, WATER } from '../world';
 import { BUNNY_COLORS } from './palette';
 import { dottedCircle, Particles, pixelDisc, pixelLine } from './particles';
 import { drawText, OUTLINE, PixelGrid, textWidth } from './pixels';
 import { menuBunny, merchantCart } from './icons';
-import { dither, monoGround } from './mono';
+import { landmarkArt, WINDMILL_FRAMES } from './landmarks';
+import { dither, monoGround, monoSprite } from './mono';
 import { type BunnyArt, forSeason, type Img, monoSprites, type SpriteSet, sprites } from './sprites';
 
 let mono = false; // 1993 Mode: black and white
@@ -175,6 +176,8 @@ export class Renderer {
   private monoGrass: { season: Season; canvas: HTMLCanvasElement } | null = null;
   private comboAt = new Map<string, number>(); // when a combo last popped at a spot
   private celebrateAt = -1; // when the victory began (renderer clock), or -1
+  private fireworksUntil = -1; // more fireworks, until this time (renderer clock)
+  private bellAt = -1; // when the bell tower last rang (renderer clock)
   private introAt = -1; // when the opening began (renderer clock), or -1
   private introBoom = false;
   private shake = 0; // 0..1: how hard the ground's jumping
@@ -573,6 +576,21 @@ export class Renderer {
           fx.text(x, cy - 34, 'FWOOMP', '#e0e0e8', 1.1);
           break;
         }
+        case 'landmark': {
+          // up it goes: a cloud of sawdust, then sparkles
+          for (let i = 0; i < 14; i++) fx.puff(x + (Math.random() - 0.5) * 36, y - 4 - Math.random() * 20, 9, '#e6d7b8', 0.9);
+          fx.burst(x, y - 30, 40, ['#ffe24a', '#ffffff', '#f2c23a'], 150, { grav: 60, life: 1.1, size: 2 });
+          fx.ring(x, y - 20, 60, '#ffe24a', 0.6);
+          this.shake = Math.max(this.shake, 0.4);
+          break;
+        }
+        case 'bell': {
+          // the noon bell: rings of sound rolling out from the belfry
+          this.bellAt = this.clock;
+          for (let k = 0; k < 3; k++) fx.ring(x, y - 40, 90 + k * 50, '#fff1a8', 0.6 + k * 0.25);
+          fx.text(x, y - 62, 'DONG!', '#fff1a8', 1.4);
+          break;
+        }
         case 'project': {
           const cx = (CRATER.x + 1) * T;
           const cy = (CRATER.y + 1) * T - 6;
@@ -608,7 +626,7 @@ export class Renderer {
     // everything standing on the ground: shadows first, then sprites back to front
     const list: Drawable[] = [];
     const shadows: [number, number, number][] = [];
-    this.collectScenery(list, shadows);
+    this.collectScenery(list, shadows, title ? 0 : g.legacy);
     if (!title) this.collectCraterWorks(g, list);
     if (!title) this.collectCart(g, list, shadows);
     this.collectTiles(g, list, shadows);
@@ -626,7 +644,7 @@ export class Renderer {
       this.drawCraterGlow(g.project);
       this.ctx.globalAlpha = 1;
     }
-    if (g.phase === 'victory') this.fireworks();
+    if (g.phase === 'victory' || this.clock < this.fireworksUntil) this.fireworks();
     if (!title) this.smokeCrater(g);
     if (!title) this.drawWeatherEvent(g);
     for (const p of g.projectiles) this.drawPebble(p.x * T, p.y * T);
@@ -655,6 +673,8 @@ export class Renderer {
     this.dusk = 0;
     this.night = 0;
     this.celebrateAt = -1;
+    this.fireworksUntil = -1;
+    this.bellAt = -1;
     this.capLanded = true;
   }
 
@@ -972,11 +992,26 @@ export class Renderer {
     if (Math.sin(this.clock * 3) > 0.9) this.fx.add({ kind: 'sparkle', x: cx + (Math.random() - 0.5) * 24, y: by - 22, life: 0.4, color: '#ffe24a' });
   }
 
-  private collectScenery(list: Drawable[], shadows: [number, number, number][]): void {
+  private collectScenery(list: Drawable[], shadows: [number, number, number][], legacy = 0): void {
     const sc = sheet().scenery;
+    // the Farm Legacy's landmarks stand where a tree or bush made way for them
+    const built = new Map<number, LandmarkKind>();
+    for (const l of LEGACY.slice(0, legacy)) built.set(idx(...landmarkSpot(l.kind)), l.kind);
+    for (const [i, kind] of built) {
+      const art = this.landmarkFrame(kind);
+      const img = mono ? monoSprite(art) : art;
+      const cx = tileX(i) * T + T / 2;
+      const by = tileY(i) * T + T;
+      shadows.push([cx + 4, by - 3, kind === 'windmill' || kind === 'fairground' ? 22 : 16]);
+      this.put(list, img, cx, by + 3, { sort: by - 1 });
+      if (kind === 'statue' && Math.sin(this.clock * 2.2) > 0.97) {
+        this.fx.add({ kind: 'sparkle', x: cx + (Math.random() - 0.5) * 16, y: by - 30 - Math.random() * 14, life: 0.5, color: '#fff1a8' });
+      }
+    }
     for (const o of SCENERY) {
       let img = sc[o.kind];
       if (!img) continue;
+      if (built.has(idx(o.x, o.y))) continue;
       if (o.kind === 'flowers' && this.season === 'winter') continue;
       if (o.kind === 'tree_oak' || o.kind === 'tree_apple' || o.kind === 'bush' || o.kind === 'flowers') {
         img = forSeason(img, o.kind, this.season);
@@ -1575,8 +1610,25 @@ export class Renderer {
     this.capLanded = false;
   }
 
+  /** Fireworks over the farm for a while, with no cap to put on first (the Farm Legacy's finale). */
+  fireworksFor(seconds: number): void {
+    this.fireworksUntil = this.clock + seconds;
+  }
+
+  /** Which picture of a landmark to show now: the sails turn, the bell swings after it rings, the pennant flaps. */
+  private landmarkFrame(kind: LandmarkKind): Img {
+    if (kind === 'windmill') return landmarkArt(kind, Math.floor(this.clock * 5) % WINDMILL_FRAMES);
+    if (kind === 'fairground') return landmarkArt(kind, Math.floor(this.clock * 3));
+    if (kind === 'bell') {
+      const t = this.bellAt < 0 ? 99 : this.clock - this.bellAt;
+      return landmarkArt(kind, t < 3 ? [0, 1, 2, 1][Math.floor(t * 7) % 4] : 1);
+    }
+    return landmarkArt(kind);
+  }
+
   private fireworks(): void {
-    if (this.celebrateAt < 0 || this.clock - this.celebrateAt < 2 || Math.random() > 0.1) return;
+    const party = this.celebrateAt >= 0 && this.clock - this.celebrateAt >= 2;
+    if ((!party && this.clock >= this.fireworksUntil) || Math.random() > 0.1) return;
     const x = (3 + Math.random() * 16) * T;
     const y = (1.5 + Math.random() * 5.5) * T;
     const shells = [['#ff5a5a', '#ffd0d0'], ['#5ab8ff', '#d0ecff'], ['#ffe24a', '#fff6c8'], ['#7ddc4a', '#d8ffc8'], ['#e07aff', '#f6d8ff']];

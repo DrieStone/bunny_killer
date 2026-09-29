@@ -85,6 +85,7 @@ export interface ScoreEntry {
   hard?: boolean; // played in Hard Mode
   id?: string; // the farm it's from: a farm kept after its win updates its entry
   endless?: number; // kept farming after sealing the crater, to this day
+  legacy?: number; // landmarks of the Farm Legacy built (all five: the legacy is complete)
 }
 
 export function loadScores(): ScoreEntry[] {

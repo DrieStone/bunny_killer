@@ -162,6 +162,16 @@ export class Sfx {
         this.tone(1319 * k, 0.14, 'square', 0.09, undefined, 0.06);
         break;
       }
+      case 'bell':
+        // the noon bell: ding-dong, ding-dong, each strike a bright partial or two over a long hum
+        if (this.ready(name, 1)) {
+          for (const [f, at] of [[784, 0], [659, 0.55], [784, 1.1], [659, 1.65]] as const) {
+            this.tone(f, 1.5, 'sine', 0.22, undefined, at);
+            this.tone(f * 2.76, 0.6, 'sine', 0.06, undefined, at);
+            this.tone(f * 5.4, 0.25, 'triangle', 0.03, undefined, at);
+          }
+        }
+        break;
       case 'hail':
         // a few seconds of hailstones rattling down
         if (this.ready(name, 1)) for (let n = 0; n < 60; n++) this.noise(0.02, 0.1 + Math.random() * 0.1, 'highpass', 2500 + Math.random() * 2500, undefined, n * 0.1);
@@ -320,6 +330,8 @@ export class Sfx {
         case 'prize': this.play('fanfare'); break;
         case 'order': this.play('fanfare'); break;
         case 'hail': this.play('hail'); break;
+        case 'bell': this.play('bell'); break;
+        case 'landmark': this.play('fanfare'); break;
         case 'smoke': this.play('boom'); this.play('rumble'); break;
         case 'sundown': this.play('dusk'); break;
         default: break;

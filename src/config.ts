@@ -165,6 +165,25 @@ export const CUSTOMERS: { who: string; wants: CropKind[] }[] = [
   { who: 'The grocer', wants: ['radish', 'lettuce', 'carrot', 'sunflower'] },
 ];
 
+// ---------------------------------------------------------------- the Farm Legacy: goals for after the win
+
+export type LandmarkKind = 'stand' | 'windmill' | 'bell' | 'fairground' | 'statue';
+
+/**
+ * Once the crater is sealed, the project line offers five landmarks, one after another, each dearer than the last
+ * and built for all to see. Each makes the farm better known: `FAME` more bunnies a day for every one standing.
+ */
+export const LEGACY: { kind: LandmarkKind; name: string; cost: number; blurb: string }[] = [
+  { kind: 'stand', name: 'Roadside Stand', cost: 6000, blurb: 'Every crop fetches 10% more, and town has an order for you every morning.' },
+  { kind: 'windmill', name: 'Windmill', cost: 12000, blurb: 'Pumps water to every row: all your crops grow as if a sprinkler reached them, drought or not.' },
+  { kind: 'bell', name: 'Bell Tower', cost: 20000, blurb: 'Rings at noon, and every bunny on the farm bolts for home.' },
+  { kind: 'fairground', name: 'Fairground', cost: 30000, blurb: 'The County Fair comes to your farm on the last day of every week, and every fair buys twice as much.' },
+  { kind: 'statue', name: 'Golden Slingshot', cost: 45000, blurb: 'A statue for the farmer who saved the county, and the legacy complete. A golden bunny comes every day.' },
+];
+export const FAME = 0.15;
+export const STAND_PRICE = 0.1;
+export const BELL = { at: 0.5, seconds: 4 }; // when it rings (share of the day), and how long everybody runs
+
 /** Store order, which is also hotkey order (1-9, then 0). */
 export const CROP_ORDER: CropKind[] = [
   'radish', 'lettuce', 'carrot', 'sunflower', 'corn', 'tomato', 'strawberry', 'pumpkin', 'watermelon', 'golden',

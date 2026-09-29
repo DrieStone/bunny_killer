@@ -80,6 +80,29 @@ the farm. Then you can **Keep Farming**: same farm, no more Bucks, and the crate
 build the farm out for as long as you like. The high score table keeps your win and notes how far you
 farmed on ("farmed on to day 50").
 
+## The Farm Legacy (after the win)
+
+Once the crater is sealed, the Crater Project line at the top of the Farm Store becomes the **Farm Legacy**:
+five landmarks, built one after another, each dearer than the last. Each goes up on the farm where a tree or
+bush made way for it (so no bunny's path changes), with a fanfare and a cloud of sawdust, and each does
+something for the farm:
+
+| Landmark | Cost | What it does |
+|----------|-----:|--------------|
+| Roadside Stand | 6,000¢ | Every crop fetches 10% more, and town has an order for you every morning. |
+| Windmill | 12,000¢ | Pumps water to every row: all crops grow as if a sprinkler reached them, drought or not. Its sails turn. |
+| Bell Tower | 20,000¢ | Rings at noon, and every bunny on the farm bolts for home (a golden bunny doesn't care). |
+| Fairground | 30,000¢ | The County Fair comes on the last day of every week, and every fair buys twice as much. |
+| Golden Slingshot | 45,000¢ | A statue for the farmer who saved the county. A golden bunny comes every day. |
+
+Every landmark makes the farm better known: 15% more bunnies a day for each one standing. The fifth brings
+fireworks and a last screen ("The finest farm in the county"), and the high score table marks the farm
+LEGACY.
+
+Why: after the win, a farm earns 10,000–16,000¢ a day with nothing left to buy by about day 45, and its
+defenses lose a crop or two a day. The Legacy gives that money somewhere to go and the farm something to
+become. The test bots finish it 15–18 days after the win (day 44–50), a landmark every three to five days.
+
 A run also ends if you go bust (no crops in the ground and not enough credits for a seed, counting what
 your defenses would sell for) or **retire the farm** (Game menu, planning only). The top-ten high score
 table ranks farms that sealed the crater first, fastest on top, and the rest by lifetime harvest.
@@ -334,8 +357,8 @@ the same day.
 
 ## Achievements and the Bunny Guide
 
-Twenty-four **achievements** (Help › Achievements…, or the title screen), from First Bonk to Hard as Nails,
-Bridge Keeper, Gold Rush, Blue Ribbon, and Old School (1,000 in Classic Mode). A trophy pops up in the
+Twenty-six **achievements** (Help › Achievements…, or the title screen), from First Bonk to Hard as Nails,
+Bridge Keeper, Gold Rush, Blue Ribbon, Finest Farm in the County, and Old School (1,000 in Classic Mode). A trophy pops up in the
 corner of the farm when one is earned. The **Bunny Guide** (Help › Bunny Guide…) fills in as you meet each
 kind of bunny: its picture, toughness and speed, what it does, and how many you've bonked across every farm. Both are kept across games.
 
@@ -366,8 +389,9 @@ kind of bunny: its picture, toughness and speed, what it does, and how many you'
 - **Interface:** **classic System 7**, with a menubar, striped title bars, rounded buttons, Geneva type
   with double-struck bold, and Chicago-style logo lettering. **Balloon Help** runs the first-game
   tutorial, and Help › Show Balloons explains anything you point at.
-- **Sound:** synthesized sound effects and a four-track chiptune score (morning, day, boss, title),
-  each separately mutable.
+- **Sound:** synthesized sound effects and a four-track chiptune score (morning, day, boss, title).
+  Game › Sound… sets each from 0 to 7 on System 7-style sliders (the effects slider bonks as you drag it);
+  `M` and `N` mute them.
 - **The opening:** a short scene on first launch (Help › Replay the Intro, or skip with a click or key):
   "Autumn, 1993." A meteor comes down on the farm at night, the ground shakes, and the crater glows.
   "Years later..."

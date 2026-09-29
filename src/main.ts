@@ -261,7 +261,19 @@ const hooks: UiHooks = {
     ui.closeModal();
     if (!game.keepFarming()) return;
     persist();
-    ui.banner(`Day ${game.round}`, 'The crater is sealed. The bunnies are not impressed.', 2.4);
+    ui.banner(`Day ${game.round}`, 'The crater is sealed. Next: the Farm Legacy, at the top of the store.', 2.6);
+  },
+  legacyComplete() {
+    // the fifth landmark: fireworks, and the farm's high score entry says so now, not just when it ends
+    renderer.fireworksFor(12);
+    store.addScore({
+      id: game.runId, score: game.stats.harvest, days: game.stats.sealedOn ?? game.round, kills: game.stats.kills,
+      bosses: game.stats.bossesBeaten, date: new Date().toISOString().slice(0, 10), retired: false, sealed: true,
+      hard: game.mode === 'hard', endless: game.round, legacy: game.legacy,
+    });
+    persist();
+    checkAchievements();
+    ui.showLegacyComplete();
   },
   replayIntro() {
     playIntro();
@@ -326,6 +338,7 @@ function onPhase(from: Phase, to: Phase): void {
       id: game.runId, score: game.stats.harvest, days, kills: game.stats.kills, bosses: game.stats.bossesBeaten,
       date: new Date().toISOString().slice(0, 10), retired: game.retired && sealedOn === undefined, sealed: sealedOn !== undefined,
       hard: game.mode === 'hard', endless: !won && sealedOn !== undefined ? game.round - 1 : undefined,
+      legacy: game.legacy || undefined,
     });
     if (won) store.openHardMode();
     checkAchievements();

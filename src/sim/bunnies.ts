@@ -39,8 +39,9 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
   // hail: everybody hunkers down where they are (a Buck doesn't care, and nothing stops a golden bunny)
   if (g.hail > 0 && !def.boss && !def.golden && b.state !== 'exit' && b.state !== 'dash') return;
   if (def.digger && digUp(g, b, dt)) return; // up out of its tunnel, looking around
-  if (g.phase === 'sundown') {
-    speed *= 1.5;
+  // sundown sends everybody home; so does the noon bell, except a Buck or a golden bunny
+  if (g.phase === 'sundown' || (g.belling > 0 && !def.boss && !def.golden)) {
+    if (g.phase === 'sundown') speed *= 1.5;
     if (b.state === 'chew') b.resume = 'flee';
     else if (b.state === 'seek' || b.state === 'eat' || b.state === 'spooked' || b.state === 'wander') startFlee(g, b);
   }

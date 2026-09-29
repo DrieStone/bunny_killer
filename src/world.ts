@@ -1,5 +1,5 @@
 // The map: grid helpers, the grid of lots you can buy, and the farms (scenery, the crater, rivers).
-import { COLS, DAILY, FARM_X0, FARM_Y0, LOT, LOTS_X, LOTS_Y, ROWS } from './config';
+import { COLS, DAILY, FARM_X0, FARM_Y0, LOT, LOTS_X, LOTS_Y, type LandmarkKind, ROWS } from './config';
 import type { Burrow } from './types';
 import { type Rng, shuffle } from './rng';
 
@@ -82,6 +82,8 @@ export interface FarmMap {
   spawn: { x: number; y: number }; // where the crater's own bunnies climb out
   water: [number, number][]; // river tiles: nothing crosses them...
   bridges: [number, number][]; // ...except here
+  // where each landmark of the Farm Legacy goes up: on a tree or bush that makes way for it, so no path changes
+  landmarks: Record<LandmarkKind, [number, number]>;
 }
 
 const run = (x0: number, y0: number, x1: number, y1: number): [number, number][] => {
@@ -95,6 +97,7 @@ export const FARMS: Record<MapKind, FarmMap> = {
   home: {
     kind: 'home', name: 'Home Farm', blurb: 'The farm you know: open meadow on every side, a pond, and the crater to the east.',
     spawn: { x: 19, y: 13 }, water: [], bridges: [],
+    landmarks: { stand: [11, 1], windmill: [1, 2], bell: [20, 7], fairground: [7, 14], statue: [1, 7] },
     scenery: [
       s('crater', 19, 11, 2, 2),
       s('pond', 1, 11, 2, 2),
@@ -129,6 +132,7 @@ export const FARMS: Record<MapKind, FarmMap> = {
     spawn: { x: 19, y: 4 },
     water: [...run(1, 0, 1, 14), ...run(2, 14, 21, 14)],
     bridges: [[1, 4], [1, 10], [7, 14], [14, 14]],
+    landmarks: { stand: [13, 1], windmill: [5, 1], bell: [20, 7], fairground: [20, 11], statue: [2, 7] },
     scenery: [
       s('crater', 19, 2, 2, 2),
       s('tree_oak', 20, 7),
@@ -153,6 +157,7 @@ export const FARMS: Record<MapKind, FarmMap> = {
     kind: 'orchard', name: 'Old Orchard',
     blurb: 'Rows of old fruit trees crowd every edge, so bunnies come down the lanes between them. The crater is in the southwest.',
     spawn: { x: 1, y: 14 }, water: [], bridges: [],
+    landmarks: { stand: [9, 1], windmill: [1, 6], bell: [20, 9], fairground: [11, 14], statue: [14, 1] },
     scenery: [
       s('crater', 1, 12, 2, 2),
       s('pond', 19, 1, 2, 2),
@@ -214,6 +219,9 @@ export function setMap(kind: MapKind): boolean {
 }
 
 export const currentMap = (): MapKind => current ?? 'home';
+
+/** The tile a landmark of the Farm Legacy stands on, on the farm in play. */
+export const landmarkSpot = (kind: LandmarkKind): [number, number] => FARMS[currentMap()].landmarks[kind];
 
 /** Today's Daily Farm: a number (Daily #1 was New Year's Day 2026), a seed, and a farm, all from the date. */
 export function dailyFor(date = new Date()): { key: string; number: number; seed: number; map: MapKind } {

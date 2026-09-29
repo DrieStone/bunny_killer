@@ -1,4 +1,4 @@
-import type { BunnyKind, CropKind, DefenseKind, EventKind, WeaponKind } from './config';
+import type { BunnyKind, CropKind, DefenseKind, EventKind, LandmarkKind, WeaponKind } from './config';
 
 export interface Crop {
   kind: CropKind;
@@ -183,6 +183,7 @@ export interface LifetimeStats {
   sealedOn?: number; // the day the crater was sealed: the run is won
   golden?: number; // golden bunnies bonked
   orders?: number; // orders from town filled
+  legacyOn?: number; // the day the fifth landmark went up: the Farm Legacy is complete
 }
 
 // x/y are tile units unless noted
@@ -230,4 +231,6 @@ export type GameEvent =
   | { t: 'prize'; x: number; y: number; text: string; short: string }
   | { t: 'order'; x: number; y: number; amount: number }
   | { t: 'hail' }
-  | { t: 'combo'; x: number; y: number }; // two defenses just worked together
+  | { t: 'combo'; x: number; y: number } // two defenses just worked together
+  | { t: 'landmark'; x: number; y: number; kind: LandmarkKind } // one of the Farm Legacy, just built
+  | { t: 'bell'; x: number; y: number }; // the bell tower rings at noon
