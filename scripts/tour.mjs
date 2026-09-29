@@ -18,6 +18,7 @@ const scr = (tx, ty) => ({ x: box.x + ((tx + 0.5) / 22) * box.width, y: box.y + 
 
 // --- planning: a small farm going in, scarecrow in hand
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 await page.evaluate(() => {
   const { game } = window.bk4;
   const at = (x, y) => y * 22 + x;

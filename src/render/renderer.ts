@@ -276,6 +276,10 @@ export class Renderer {
           fx.text(x, y - 26, `+${e.amount}¢`, '#ffe24a', 1.4);
           fx.burst(x, y - 12, 7, ['#ffe24a', '#ffffff'], 80, { grav: 0, life: 0.4, size: 2 });
           break;
+        case 'order':
+          fx.text(x, y - 20, `ORDER FILLED! +${e.amount}¢`, '#ffe24a', 2.2);
+          fx.burst(x, y - 10, 50, ['#ffe24a', '#ff6a5a', '#8fd3ff', '#7ddc4a', '#ffffff'], 190, { grav: 70, life: 1.3, size: 2 });
+          break;
         case 'golden':
           for (let n = 0; n < 12; n++) {
             this.fx.add({ kind: 'sparkle', x: x + (Math.random() - 0.5) * T * 2, y: y + (Math.random() - 0.5) * T, life: 0.6, color: '#fff1a8' });

@@ -12,6 +12,7 @@ await page.evaluate(() => { localStorage.clear(); localStorage.setItem('bk4.tuto
 await page.reload({ waitUntil: 'networkidle' });
 await wait(500);
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 await wait(1800); // let the banner go
 const box = await page.locator('#game').boundingBox();
 const at = (tx, ty) => ({ x: box.x + ((tx + 0.5) / 22) * box.width, y: box.y + ((ty + 0.5) / 16) * box.height });

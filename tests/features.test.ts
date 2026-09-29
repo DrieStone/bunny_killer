@@ -178,3 +178,62 @@ describe('the market', () => {
     expect(g.wanted.lettuce).toBe(0);
   });
 });
+
+describe('orders from town', () => {
+  it('come from Day 3 on, not every day, the same way for the same farm', () => {
+    const g = new Game();
+    g.newGame(61);
+    unlockAll(g);
+    const posted: number[] = [];
+    for (let day = 0; day < 20; day++) {
+      if (g.order) posted.push(g.round);
+      g.order = null;
+      g.round++;
+      g.loadSave(g.toSave());
+      (g as unknown as { postOrder(): void }).postOrder();
+    }
+    expect(posted.length).toBeGreaterThan(4);
+    expect(posted.length).toBeLessThan(20);
+    expect(Math.min(...posted)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('pay a bonus once, when enough of the crop has gone to market', () => {
+    const g = new Game();
+    g.newGame(62);
+    unlockAll(g);
+    const tiles = plotTiles(g);
+    g.order = { who: 'The school', kind: 'carrot', want: 5, got: 0, due: g.round + 3, bonus: 60 };
+    for (const i of tiles.slice(0, 3)) g.place({ type: 'crop', kind: 'carrot' }, i);
+    g.wave = [];
+    playDay(g);
+    expect(g.order?.got).toBe(3);
+    expect(g.roundStats.orderPaid).toBe(0);
+    expect(g.roundStats.orderNote).toMatch(/3 of 5 carrots/);
+    // a save keeps it
+    const copy = new Game();
+    copy.loadSave(JSON.parse(JSON.stringify(g.toSave())));
+    expect(copy.order?.got).toBe(3);
+    g.continueAfterSummary();
+    for (const i of tiles.slice(0, 3)) g.place({ type: 'crop', kind: 'carrot' }, i);
+    g.wave = [];
+    const before = g.credits;
+    playDay(g);
+    expect(g.roundStats.orderPaid).toBe(60);
+    expect(g.credits - before).toBe(g.roundStats.harvestTotal + 60);
+    expect(g.order).toBeNull();
+    expect(g.stats.orders).toBe(1);
+  });
+
+  it('lapse if the day comes and goes', () => {
+    const g = new Game();
+    g.newGame(63);
+    unlockAll(g);
+    g.order = { who: 'The diner', kind: 'lettuce', want: 8, got: 2, due: g.round, bonus: 40 };
+    g.place({ type: 'crop', kind: 'carrot' }, plotTiles(g)[0]);
+    g.wave = [];
+    playDay(g);
+    expect(g.roundStats.orderPaid).toBe(0);
+    expect(g.roundStats.orderNote).toMatch(/ran out/);
+    expect(g.order).toBeNull();
+  });
+});

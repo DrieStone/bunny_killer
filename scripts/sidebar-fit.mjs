@@ -18,12 +18,14 @@ for (const [w, h] of SIZES) {
     await page.evaluate(() => { localStorage.clear(); localStorage.setItem('bk4.tutorial', 'done'); });
     await page.reload({ waitUntil: 'networkidle' });
     await page.click('.dialog button:has-text("New Game")');
+    await page.click('.farm-card'); // the farm picker: Home Farm
     await page.evaluate((st) => {
       const { game } = window.bk4;
       Object.assign(game, { seed: 4242, round: st.round, credits: 3000, project: st.project });
       if (st.plot) { game.lots = game.lots.map((_, n) => (n % 8) >= 2 && (n % 8) <= 5); for (const i of game.ownedTiles()) game.tilled[i] = 1; }
       Object.assign(game.stats, { kills: st.kills, harvest: st.harvest, bossesBeaten: st.bucks });
       game.glut.carrot = 9;
+      if (st.plot) game.order = { who: 'Mrs. Pennywhistle', kind: 'sunflower', want: 14, got: 5, due: st.round + 2, bonus: 170 };
       game.loadSave(game.toSave());
       const r = game.plot;
       const at = (x, y) => y * 22 + x;

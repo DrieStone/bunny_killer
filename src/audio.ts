@@ -303,6 +303,7 @@ export class Sfx {
         case 'project': this.play('rumble'); break;
         case 'golden': this.play('jingle'); break;
         case 'prize': this.play('fanfare'); break;
+        case 'order': this.play('fanfare'); break;
         case 'smoke': this.play('boom'); this.play('rumble'); break;
         case 'sundown': this.play('dusk'); break;
         default: break;

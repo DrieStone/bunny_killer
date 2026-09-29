@@ -7,6 +7,7 @@ await page.goto('http://localhost:5190/', { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 const box = await page.locator('#game').boundingBox();
 const scr = (tx, ty) => ({ x: box.x + ((tx + 0.5) / 22) * box.width, y: box.y + ((ty + 0.5) / 16) * box.height });
 await page.evaluate(() => {

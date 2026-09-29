@@ -12,6 +12,7 @@ await page.evaluate(() => { localStorage.clear(); localStorage.setItem('bk4.tuto
 await page.reload({ waitUntil: 'networkidle' });
 await wait(500);
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 await wait(1800);
 
 // Day 9: one Buck down, a Crater Project stage waiting on the next one

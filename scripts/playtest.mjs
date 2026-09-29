@@ -11,6 +11,7 @@ await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 await page.waitForTimeout(200);
 
 // tile (tx,ty) -> screen point

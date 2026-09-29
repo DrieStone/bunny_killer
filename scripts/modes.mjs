@@ -12,6 +12,7 @@ await page.evaluate(() => { localStorage.clear(); localStorage.setItem('bk4.tuto
 await page.reload({ waitUntil: 'networkidle' });
 await wait(500);
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 await wait(1800);
 
 // a small day where every bunny gets bonked: the all-clear box comes up over the farm
@@ -77,6 +78,8 @@ await page.click('.dialog button:has-text("Hard Mode")');
 await wait(500);
 await page.screenshot({ path: 'shots/modes-5-hardintro.png' });
 await page.click('.dialog button:has-text("Start")');
+await wait(300);
+await page.click('.farm-card'); // the farm picker
 await wait(300);
 const confirm = await page.$('.dialog button:has-text("New Game")');
 if (confirm) await confirm.click();

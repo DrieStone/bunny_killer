@@ -7,6 +7,7 @@ await page.goto('http://localhost:5190/', { waitUntil: 'networkidle' });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: 'networkidle' });
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 await page.waitForTimeout(2000);
 await page.screenshot({ path: 'shots/tut-0.png' });
 // plant one carrot -> step 1

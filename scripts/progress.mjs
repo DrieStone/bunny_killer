@@ -14,6 +14,7 @@ await wait(600);
 
 // --- Day 3: a young farm, some things still locked, a few NEW
 await page.click('.dialog button:has-text("New Game")');
+await page.click('.farm-card'); // the farm picker: Home Farm
 await page.evaluate(() => {
   const { game, hooks } = window.bk4;
   game.stats.harvest = 300;

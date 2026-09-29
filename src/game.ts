@@ -2,8 +2,8 @@
 import {
   ANGER, BOSS_BOUNTY, BOSS_EVERY, BOSS_HP_PER_APPEARANCE, BREED_CAP, BUNNIES, type BunnyKind, bunnyHpScale, burrowCount,
   CAP_RETRY, COLS, CROPS, CROP_ORDER, type CropKind, DEFENSES, type DefenseKind, defenseStats, FARM, FARM_ORDER,
-  type FarmUpgrade, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
-  LOT_COUNT, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, SMOKE_BOMB, POP_SECONDS, PROJECT, REPAIR_RATE, ROUND_SECONDS, ROWS, type Season, seasonOf, SEASONS,
+  CUSTOMERS, cropPlural, type FarmUpgrade, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
+  LOT_COUNT, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, ORDERS, ripenDays, SMOKE_BOMB, POP_SECONDS, PROJECT, REPAIR_RATE, ROUND_SECONDS, ROWS, type Season, seasonOf, SEASONS,
   SELL_BACK, SOIL_GROWTH, SPAWN_WINDOW, SPRINKLER_GROWTH, STALL_PRICE, START_CREDITS, START_LOTS, SUNDOWN_MAX_SECONDS,
   TILL_COST, type Unlock, UNLOCK_RULE, unlockName, UNLOCKS, upgradeCost, waveSize, waveWeights, WEAPON_LEVELS,
   WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, type Weather, WEATHER, WEATHER_ODDS, WELL_GROWTH,
@@ -13,7 +13,7 @@ import { PathField } from './path';
 import { knockBack, sidestep, updateBunnies } from './sim/bunnies';
 import { updateDefenses } from './sim/defenses';
 import type {
-  Bunny, Burrow, Crop, Dog, GameEvent, LifetimeStats, Phase, Projectile, RoundStats, Shell, ShopItem, SpawnEntry,
+  Bunny, Burrow, Crop, Dog, GameEvent, LifetimeStats, Order, Phase, Projectile, RoundStats, Shell, ShopItem, SpawnEntry,
   Structure, Tile,
 } from './types';
 import {
@@ -57,6 +57,7 @@ export interface SaveData {
   tilled?: number[]; // tilled tiles
   mode?: Mode; // hard mode, once it's open (normal if missing)
   smoked?: boolean; // a smoke bomb went into the crater this morning
+  order?: Order | null; // an order from town, if one is open
   map?: MapKind; // which farm (Home Farm if missing)
 }
 
@@ -129,7 +130,7 @@ function emptyRoundStats(): RoundStats {
   return {
     harvested: {}, harvestTotal: 0, spent: 0, kills: 0, bounty: 0,
     escapedFed: 0, escapedHungry: 0, cropsLost: 0, structuresBroken: 0, bucks: 0, bucksEscaped: 0, cropsStolen: 0, market: {},
-    prize: '', prizeCash: 0,
+    prize: '', prizeCash: 0, orderPaid: 0, orderNote: '',
   };
 }
 
@@ -169,6 +170,8 @@ export class Game {
   lastNight = false; // today is The Last Night
   smoked = false; // a smoke bomb went into the crater this morning: a Buck comes out today
   goldenAt = -1; // when today's golden bunny makes its dash (seconds into the day), or -1
+  order: Order | null = null; // an order from town, if one is open
+  newOrder = false; // it was posted this morning
   nightResult: NightResult = null;
   unlocked = new Set<Unlock>();
   newUnlocks: Unlock[] = []; // what opened up in the store this morning
@@ -245,6 +248,7 @@ export class Game {
     this.capDiscount = false;
     this.lastNight = false;
     this.smoked = false;
+    this.order = null;
     this.unlocked = new Set();
     this.market = evenMarket(1);
     this.glut = evenMarket(0);
@@ -284,6 +288,8 @@ export class Game {
       ? 6 + gold() * (ROUND_SECONDS * SPAWN_WINDOW - 12) : -1;
     this.costDirty = true;
     if (newDay && this.round > 1) this.moveMarket();
+    this.newOrder = false;
+    if (newDay && !this.order) this.postOrder();
     const fresh = this.refreshUnlocks();
     this.newUnlocks = newDay ? fresh : [];
     if (this.isBust()) this.phase = 'gameover';
@@ -598,6 +604,43 @@ export class Game {
     this.emit({ t: 'golden', x: from[0], y: from[1] });
   }
 
+  /** Maybe a customer in town wants something this morning. It has its own dice, like the golden bunny. */
+  private postOrder(): void {
+    if (this.round < ORDERS.from || this.lastNight) return;
+    const r = makeRng(hashSeed(this.seed, this.round, 881));
+    if (r() > ORDERS.chance) return;
+    const options = CUSTOMERS.map((c) => ({ who: c.who, wants: c.wants.filter((k) => this.isUnlocked(k)) })).filter((c) => c.wants.length);
+    if (!options.length) return;
+    const c = options[Math.floor(r() * options.length)];
+    const kind = c.wants[Math.floor(r() * c.wants.length)];
+    const days = ORDERS.minDays + Math.floor(r() * (ORDERS.maxDays - ORDERS.minDays + 1));
+    const want = Math.max(ORDERS.min, Math.round((this.ownedTiles().length * ORDERS.share) / ripenDays(kind)));
+    const bonus = Math.max(20, Math.round((want * CROPS[kind].sellValue * ORDERS.bonus) / 5) * 5);
+    this.order = { who: c.who, kind, want, got: 0, due: this.round + days - 1, bonus };
+    this.newOrder = true;
+  }
+
+  /** After the harvest: pay for a filled order, or let a late one go. */
+  private settleOrder(): void {
+    const o = this.order;
+    if (!o) return;
+    const what = `${o.want} ${cropPlural(o.kind, o.want)}`;
+    if (o.got >= o.want) {
+      this.credits += o.bonus;
+      this.roundStats.orderPaid = o.bonus;
+      this.roundStats.orderNote = `${o.who} paid a ${o.bonus}¢ bonus for ${what}!`;
+      this.stats.orders = (this.stats.orders ?? 0) + 1;
+      this.emit({ t: 'order', x: COLS / 2, y: ROWS / 2, amount: o.bonus });
+      this.order = null;
+    } else if (this.round >= o.due) {
+      this.roundStats.orderNote = `${o.who}'s order ran out: ${o.got} of ${what}.`;
+      this.order = null;
+    } else {
+      const left = o.due - this.round;
+      this.roundStats.orderNote = `${o.who}'s order: ${o.got} of ${what} so far, ${left === 1 ? '1 day' : `${left} days`} left.`;
+    }
+  }
+
   /** Caught one: cash, a free star on a defense, or a free Seed Lab level. */
   private awardPrize(b: Bunny): void {
     this.stats.golden = (this.stats.golden ?? 0) + 1;
@@ -679,6 +722,8 @@ export class Game {
         sold[c.kind] = n + 1;
       }
     }
+    // an open order counts whatever of its crop went to market tonight
+    if (this.order) this.order.got = Math.min(this.order.want, this.order.got + (sold[this.order.kind] ?? 0));
     // what tonight's prices came to, and how much the market will remember tomorrow
     for (const k of CROP_ORDER) {
       const n = sold[k] ?? 0;
@@ -729,6 +774,7 @@ export class Game {
     while (this.harvestTimer <= 0) {
       const h = this.harvestQueue.shift();
       if (!h) {
+        this.settleOrder();
         this.phase = 'summary';
         this.phaseTime = 0;
         return;
@@ -1504,7 +1550,7 @@ export class Game {
       breedBonus: this.breedBonus, stats: { ...this.stats }, tiles,
       lots: this.lots.flatMap((own, n) => (own ? [n] : [])), lotsBought: this.lotsBought,
       tilled: [...this.tilled.keys()].filter((i) => this.tilled[i]),
-      project: this.project, capDiscount: this.capDiscount, lastNight: this.lastNight, smoked: this.smoked,
+      project: this.project, capDiscount: this.capDiscount, lastNight: this.lastNight, smoked: this.smoked, order: this.order,
       market: { ...this.market }, glut: { ...this.glut }, wanted: { ...this.wanted },
       weapons: { ...this.weapons }, weapon: this.weapon, farm: { ...this.farm }, hybrid: { ...this.hybrid },
     };
@@ -1539,6 +1585,7 @@ export class Game {
     this.capDiscount = !!d.capDiscount;
     this.lastNight = !!d.lastNight && this.project === PROJECT.length;
     this.smoked = !!d.smoked;
+    this.order = d.order && CROPS[d.order.kind] ? { ...d.order } : null;
     if (this.project === PROJECT.length && !this.lastNight) this.project = PROJECT.length - 1; // the cap never went on
     this.market = { ...evenMarket(1), ...d.market };
     this.glut = { ...evenMarket(0), ...d.glut };

@@ -1,6 +1,6 @@
 // The System 7 chrome around the farm: menubar, Farm Store, Almanac, and dialogs.
 import {
-  ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, CROP_ORDER, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
+  ANGER, BREED_CAP, BUNNIES, BUNNY_ORDER, CAP_RETRY, CROP_ORDER, cropPlural, CROPS, type CropKind, DEFENSE_ORDER, DEFENSES,
   defenseStats, FARM, FARM_ORDER, type FarmUpgrade, firstRound, fruitsPerDay, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost,
   lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, PERKS, SMOKE_BOMB, PROJECT, ripenDays, ROUND_SECONDS, SEASONS, TILL_COST, type Unlock, UNLOCK_RULE,
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
@@ -224,7 +224,8 @@ export class UI {
         <div class="group scout"><span class="legend">Scouting Report</span><div id="scout"></div></div>
         <div class="tabs" id="store-tabs">${TABS.map(([t, label]) => `<button class="tab" data-tab="${t}">${label}<i></i></button>`).join('')}</div>
         <div class="scroll tabbox">
-          <div class="page" data-page="seeds"><div class="items" id="seed-items"></div><div class="items tools" id="seed-tools"></div></div>
+          <div class="page" data-page="seeds"><div class="order-note" id="order-note" hidden></div>
+            <div class="items" id="seed-items"></div><div class="items tools" id="seed-tools"></div></div>
           <div class="page" data-page="defense"><div class="items" id="def-items"></div><div class="items tools" id="tool-items"></div></div>
           <div class="page" data-page="weapons"><div id="weapon-rows"></div>
             <p class="hint">During the day, <span class="kbd">1</span>–<span class="kbd">5</span> or the mouse wheel switch weapons.</p></div>
@@ -358,6 +359,8 @@ export class UI {
       });
     };
     button('btn-project', () => this.fundProject(), 'project');
+    $('order-note').addEventListener('mouseenter', () => { this.hoverButton = 'order'; });
+    $('order-note').addEventListener('mouseleave', () => { this.hoverButton = null; });
     button('btn-start', () => this.hooks.startDay(), 'start');
     button('btn-pause', () => this.hooks.togglePause(), 'pause');
     button('btn-speed', () => this.hooks.toggleSpeed(), 'speed');
@@ -685,6 +688,18 @@ export class UI {
     const where = fromCrater > 0 ? `${g.burrows.length} burrows and the crater` : `${g.burrows.length} burrows`;
     this.set('scout', `${night}${forecast}<b>${total}</b> bunnies from ${where}.` +
       `${breed}${boss}<div class="kinds">${kinds}</div>${newcomers}`);
+    // an order from town, pinned at the top of the Seeds tab, with its seed picked out on the shelf
+    const o = g.order;
+    const note = $('order-note');
+    if (note.hidden !== !o) note.hidden = !o;
+    if (o) {
+      this.set('order-note', `<b>Order:</b> ${o.want} ${cropPlural(o.kind, o.want)} by ${o.due === g.round ? 'tonight' : `Day ${o.due}`} ` +
+        `<span class="got">· ${o.got}/${o.want} ·</span> <b>+${o.bonus}¢</b>`);
+    }
+    for (const k of CROP_ORDER) {
+      const cell = this.itemEls.get(`crop:${k}`);
+      if (cell && cell.classList.contains('ordered') !== (o?.kind === k)) cell.classList.toggle('ordered');
+    }
     const noCrops = g.cropCount() === 0;
     const cheapest = Math.min(...CROP_ORDER.filter((k) => g.isUnlocked(k)).map((k) => CROPS[k].seedCost));
     const broke = noCrops && g.credits < cheapest;
@@ -876,8 +891,7 @@ export class UI {
     const g = this.game;
     const days = g.wanted[kind];
     if (days > 0) {
-      const name = kind === 'corn' || kind === 'lettuce' ? CROPS[kind].name : plural(CROPS[kind].name);
-      return `<p class="hint">Nobody's sold ${name.toLowerCase()} in town for ${days === 1 ? 'a day' : `${days} days`}: ` +
+      return `<p class="hint">Nobody's sold ${cropPlural(kind)} in town for ${days === 1 ? 'a day' : `${days} days`}: ` +
         `+${Math.round(g.demand(kind) * 100)}% tonight.</p>`;
     }
     const room = Math.max(0, Math.floor(MARKET.glut - g.glut[kind]));
@@ -899,6 +913,15 @@ export class UI {
         }
         return `<div class="title">The Crater Project</div><p>Seal the crater to win. Each stage angers it; the last starts The Last Night.</p>` +
           `<ol class="steps">${steps}</ol>${note ? `<p class="hint">${note}</p>` : ''}`;
+      }
+      case 'order': {
+        const o = g.order;
+        if (!o) return '';
+        const left = o.due - g.round;
+        return `<div class="title">Order from town</div><p>${o.who} wants ${o.want} ${cropPlural(o.kind, o.want)} by ` +
+          `${left === 0 ? 'tonight' : `Day ${o.due}`}, and will pay a <b>${o.bonus}¢</b> bonus on top of the market price.</p>` +
+          `<p class="hint">${o.got} so far. Every one you harvest counts, ${left === 0 ? 'tonight only' : `through ${left === 1 ? 'tomorrow' : `Day ${o.due}`}`}. ` +
+          'Let it go and nothing bad happens.</p>';
       }
       case 'repair': {
         const rep = g.repairCost();
@@ -1199,7 +1222,8 @@ export class UI {
     const flooded = CROP_ORDER.filter((k) => rs.harvested[k] && (rs.market[k] ?? 1) < SEASONS[g.season].sell * g.market[k] * 0.95);
     if (rs.bounty) rows.push(`<tr><td>Asteroid Buck bounty</td><td class="n">${rs.bounty}¢</td></tr>`);
     if (rs.prizeCash) rows.push(`<tr><td>Golden bunny</td><td class="n">${rs.prizeCash}¢</td></tr>`);
-    const earned = rs.harvestTotal + rs.bounty + rs.prizeCash;
+    if (rs.orderPaid) rows.push(`<tr><td>Order bonus</td><td class="n">${rs.orderPaid}¢</td></tr>`);
+    const earned = rs.harvestTotal + rs.bounty + rs.prizeCash + rs.orderPaid;
     const table = rows.length
       ? `<table>${rows.join('')}<tr class="total"><td>Total</td><td class="n">${earned}¢</td></tr></table>`
       : '<p>Nothing was ripe enough to sell today.</p>';
@@ -1209,6 +1233,7 @@ export class UI {
     const lines = [
       `Bonked <b>${rs.kills}</b> ${rs.kills === 1 ? 'bunny' : 'bunnies'}.`,
       rs.prize && !rs.prizeCash ? `You caught the golden bunny! ${rs.prize}` : '',
+      rs.orderNote,
       rs.cropsLost ? `<b>${rs.cropsLost}</b> ${rs.cropsLost === 1 ? 'crop was' : 'crops were'} lost${rs.cropsStolen ? `, ${rs.cropsStolen} of them carried off by Bandits` : ''}.` : 'Not a single crop lost!',
       rs.structuresBroken ? `<b>${rs.structuresBroken}</b> ${rs.structuresBroken === 1 ? 'defense was' : 'defenses were'} chewed to bits.` : '',
       chewed ? `<b>${chewed}</b> ${chewed === 1 ? 'defense is' : 'defenses are'} chewed up. <b>Repair All</b> (Defense tab) fixes ` +
@@ -1217,7 +1242,7 @@ export class UI {
         ? `<b>${rs.escapedFed}</b> got away with full bellies. Expect <b>${Math.min(rs.escapedFed, BREED_CAP)}</b> extra bunnies tomorrow.`
         : 'No bunny got home with a full belly.',
       growing ? `${growing} ${growing === 1 ? 'crop is' : 'crops are'} still growing.` : '',
-      flooded.length ? `So many ${flooded.map((k) => plural(CROPS[k].name).toLowerCase()).join(' and ')} flooded the market ` +
+      flooded.length ? `So many ${flooded.map((k) => cropPlural(k)).join(' and ')} flooded the market ` +
         'that the last ones sold cheap. Mixing crops keeps prices up.' : '',
     ].filter(Boolean);
     const soon = g.nightResult ? [] : g.pendingUnlocks();

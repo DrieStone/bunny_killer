@@ -2,7 +2,7 @@
 import { Sfx } from './audio';
 import { Classic, type ClassicEvent } from './classic';
 import { Music, type Song } from './music';
-import { type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
+import { cropPlural, type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
 import { FARMS, type MapKind } from './world';
 import { Game } from './game';
 import { Renderer, type View } from './render/renderer';
@@ -98,7 +98,9 @@ const hooks: UiHooks = {
     if (game.phase === 'planning') {
       persist();
       const fresh = game.newUnlocks.map(unlockName);
-      const sub = fresh.length ? `New at the store: ${fresh.join(', ')}` : game.isBossDay() ? 'The crater is glowing…' : 'A new morning';
+      const o = game.newOrder ? game.order : null;
+      const sub = fresh.length ? `New at the store: ${fresh.join(', ')}` : o ? `New order: ${o.who.replace(/^The /, 'the ')} wants ${o.want} ${cropPlural(o.kind, o.want)}`
+        : game.isBossDay() ? 'The crater is glowing…' : 'A new morning';
       ui.banner(`Day ${game.round}`, sub, fresh.length ? 2.6 : 1.6);
     }
   },

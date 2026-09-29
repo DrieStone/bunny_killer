@@ -91,6 +91,30 @@ export function fruitsPerDay(kind: CropKind, speed = 1): number {
   return regrow ? Math.max(1, Math.floor((ROUND_SECONDS * speed) / regrow + 1e-9)) : 1;
 }
 
+/** "carrots", "radishes", "strawberries", "tomatoes"; lettuce and corn stay as they are. Lowercase. */
+export function cropPlural(kind: CropKind, n = 2): string {
+  const name = CROPS[kind].name.toLowerCase();
+  if (n === 1 || kind === 'corn' || kind === 'lettuce') return name;
+  if (name.endsWith('y')) return `${name.slice(0, -1)}ies`;
+  if (name.endsWith('sh') || name.endsWith('o')) return `${name}es`;
+  return `${name}s`;
+}
+
+/**
+ * Orders from town: from Day 3, a customer may post one on a morning when none is open. Harvest that crop by the
+ * due day and they pay a bonus on top of the market price: `bonus` of what the crops sell for normally. How many
+ * they want grows with your farm (`share` of your tiles' worth, less for slow crops).
+ */
+export const ORDERS = { from: 3, chance: 0.55, minDays: 3, maxDays: 5, share: 0.3, bonus: 0.5, min: 4 };
+export const CUSTOMERS: { who: string; wants: CropKind[] }[] = [
+  { who: 'The diner', wants: ['lettuce', 'tomato', 'corn', 'radish'] },
+  { who: 'The school', wants: ['carrot', 'strawberry', 'corn', 'radish'] },
+  { who: 'The pie shop', wants: ['pumpkin', 'strawberry', 'watermelon', 'carrot'] },
+  { who: 'The county fair', wants: ['watermelon', 'pumpkin', 'sunflower', 'corn'] },
+  { who: 'Mrs. Pennywhistle', wants: ['sunflower', 'golden', 'lettuce', 'tomato'] },
+  { who: 'The grocer', wants: ['radish', 'lettuce', 'carrot', 'sunflower'] },
+];
+
 /** Store order, which is also hotkey order (1-9, then 0). */
 export const CROP_ORDER: CropKind[] = [
   'radish', 'lettuce', 'carrot', 'sunflower', 'corn', 'tomato', 'strawberry', 'pumpkin', 'watermelon', 'golden',

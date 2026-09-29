@@ -105,6 +105,16 @@ export interface Projectile {
   done: boolean;
 }
 
+/** An order from town: `want` of a crop by the evening of day `due`, for a bonus on top of the sale. */
+export interface Order {
+  who: string;
+  kind: CropKind;
+  want: number;
+  got: number;
+  due: number;
+  bonus: number;
+}
+
 export interface Burrow {
   x: number;
   y: number;
@@ -143,6 +153,8 @@ export interface RoundStats {
   market: Partial<Record<CropKind, number>>; // tonight's price, as a share of normal, for what sold
   prize: string; // what the golden bunny paid out today ('' if nobody caught it)
   prizeCash: number;
+  orderPaid: number; // an order from town filled tonight
+  orderNote: string; // how the order stands after tonight's harvest ('' if there isn't one)
 }
 
 export interface LifetimeStats {
@@ -152,6 +164,7 @@ export interface LifetimeStats {
   bossesBeaten: number;
   sealedOn?: number; // the day the crater was sealed: the run is won
   golden?: number; // golden bunnies bonked
+  orders?: number; // orders from town filled
 }
 
 // x/y are tile units unless noted
@@ -196,4 +209,5 @@ export type GameEvent =
   | { t: 'buyLand'; x: number; y: number }
   | { t: 'smoke'; x: number; y: number }
   | { t: 'golden'; x: number; y: number } // a golden bunny starts its dash
-  | { t: 'prize'; x: number; y: number; text: string; short: string };
+  | { t: 'prize'; x: number; y: number; text: string; short: string }
+  | { t: 'order'; x: number; y: number; amount: number };
