@@ -172,6 +172,7 @@ export class Renderer {
   private meadowKey = '';
   private soilTiles: HTMLCanvasElement[] = [];
   private shade: CanvasPattern | null = null; // 1993 Mode's shade for land not yet bought
+  private monoGrass: { season: Season; canvas: HTMLCanvasElement } | null = null;
   private comboAt = new Map<string, number>(); // when a combo last popped at a spot
   private celebrateAt = -1; // when the victory began (renderer clock), or -1
   private introAt = -1; // when the opening began (renderer clock), or -1
@@ -668,7 +669,7 @@ export class Renderer {
     c.width = WORLD_W;
     c.height = WORLD_H;
     const ctx = c.getContext('2d')!;
-    ctx.drawImage(this.meadowFor(this.season), 0, 0);
+    ctx.drawImage(mono ? this.monoMeadow(this.season) : this.meadowFor(this.season), 0, 0);
     this.paintRiver(ctx);
     if (tilled) {
       const winter = this.season === 'winter';
@@ -781,6 +782,18 @@ export class Renderer {
   }
 
   /** The meadow for a season: soft patches of grass, tufts, clover and flowers (leaves in fall, snow in winter). */
+  /** The meadow in black and white: white in every season, with its darker tufts left in. */
+  private monoMeadow(season: Season): HTMLCanvasElement {
+    if (this.monoGrass?.season === season) return this.monoGrass.canvas;
+    const c = document.createElement('canvas');
+    c.width = WORLD_W;
+    c.height = WORLD_H;
+    c.getContext('2d')!.drawImage(this.meadowFor(season), 0, 0);
+    monoGround(c, season === 'winter' ? 'snow' : 'grass');
+    this.monoGrass = { season, canvas: c };
+    return c;
+  }
+
   private meadowFor(season: Season): HTMLCanvasElement {
     if (this.meadow && this.meadowKey === season) return this.meadow;
     const c = document.createElement('canvas');

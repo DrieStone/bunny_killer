@@ -41,8 +41,12 @@ export function dither(src: Uint8ClampedArray, dst: Uint32Array, w: number, h: n
   }
 }
 
-/** The ground, once per layout: sunny grass goes white with its darker tufts left in; soil, water, and the rest take patterns. */
-export function monoGround(c: HTMLCanvasElement): void {
+/**
+ * The ground, once per layout: grass goes white with its darker tufts left in, and soil, water, and the rest take
+ * patterns. `meadow` for the meadow itself: 'grass' whatever color the season has made it, or 'snow', which stays
+ * white with the grass showing through it in light dots.
+ */
+export function monoGround(c: HTMLCanvasElement, meadow: 'grass' | 'snow' | null = null): void {
   const w = c.width;
   const h = c.height;
   const ctx = c.getContext('2d')!;
@@ -57,7 +61,8 @@ export function monoGround(c: HTMLCanvasElement): void {
       const r = px[p];
       const g = px[p + 1];
       const b = px[p + 2];
-      if (g > r + 8 && g > b + 8) out[i] = lum[i] < mean[i] - 16 ? BLACK : WHITE;
+      if (meadow === 'snow') out[i] = lum[i] >= 185 ? WHITE : dot(192, x, y);
+      else if (meadow === 'grass' || (g > r + 8 && g > b + 8)) out[i] = lum[i] < mean[i] - 16 ? BLACK : WHITE;
       else out[i] = dot(LEVEL[gray(r, g, b, LEAF_LIFT)], x, y);
     }
   }
