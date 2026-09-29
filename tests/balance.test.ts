@@ -1,8 +1,10 @@
 // Balance report: BALANCE=1 SEED=7 npx vitest run tests/balance.test.ts (SEED picks the farm, default 99; HARD=1 for Hard Mode)
 // REPS=6 plays six seeded replays per skill instead and prints one line each: W31 = sealed on day 31, BUST20 = went
 // bust on day 20, with the days each Crater Project stage was funded and the smoke bombs thrown. One run is too noisy
-// to judge a change by; run a few seeds side by side.
+// to judge a change by; run a few seeds side by side. To try a Hard Mode tweak without editing config.ts, set any of
+// HARD_WAVES, HARD_HP, HARD_BOSSHP, HARD_ANGER (numbers, as in MODES.hard).
 import { describe, it } from 'vitest';
+import { MODES } from '../src/config';
 import { Game } from '../src/game';
 import { botPlan, playDay } from './helpers';
 
@@ -10,6 +12,12 @@ const DAYS = Number(import.meta.env.DAYS ?? 70);
 const SEED = Number(import.meta.env.SEED ?? 99);
 const MODE = import.meta.env.HARD ? 'hard' : 'normal';
 const REPS = Number(import.meta.env.REPS ?? 0);
+for (const k of ['waves', 'hp', 'bossHp', 'anger'] as const) {
+  const v = import.meta.env[`HARD_${k.toUpperCase()}`];
+  if (v === undefined) continue;
+  if (!Number.isFinite(Number(v))) throw new Error(`HARD_${k.toUpperCase()}=${v} isn't a number`);
+  MODES.hard[k] = Number(v);
+}
 
 /** The bot's aim is random too: seed it, so a run can be repeated exactly. */
 function seeded(a: number): () => number {

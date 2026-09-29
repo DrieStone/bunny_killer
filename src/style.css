@@ -302,6 +302,7 @@ body.mono #menubar, body.mono #side, body.mono #modal-layer, body.mono #farm-win
   background: #fff; border: 1px solid #000; box-shadow: 2px 2px 0 #000;
   padding: 3px; max-width: 560px; min-width: 340px;
 }
+.dialog { max-height: calc(100% - 12px); overflow-y: auto; } /* a short screen scrolls a tall dialog */
 .dialog > .inner, .alert > .inner { border: 2px solid #000; padding: 16px 20px 16px; }
 .dialog h1, .alert h1 { font-size: 16px; margin: 0 0 8px; }
 .dialog h2 { font-size: 13px; margin: 12px 0 4px; }
@@ -368,6 +369,7 @@ body.mono #menubar, body.mono #side, body.mono #modal-layer, body.mono #farm-win
 .dialog .hard { font: bold 9px Geneva, sans-serif; background: #000; color: #fff; padding: 0 3px; vertical-align: 1px; }
 .dialog .unlocks { border: 1px solid #000; padding: 4px 8px; margin-top: 10px; }
 .help-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+.dialog:has(.help-cols) { max-width: 780px; } /* wide enough that How to Play fits a laptop screen */
 
 /* ------------------------------------------------------------ Balloon Help */
 

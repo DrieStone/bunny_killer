@@ -1,4 +1,4 @@
-# Bunny Killer 4 — Design (v0.5)
+# Bunny Killer 4 — Design (v0.6)
 
 > *It's been years since the asteroid. The bunnies never left… and some of them glow.*
 
@@ -42,6 +42,14 @@ lay a farm out your way: fields of soil with grass lanes and outposts of defense
 During planning, land that isn't yours is darkened, and lots for sale get a dotted outline. With Buy Land
 in hand, the lot under the mouse lights up with its price.
 
+**Three farms.** A new game starts by picking a farm. The lots, prices, and rules are the same on all three;
+what changes is where the bunnies come from and how they get in. Enter picks the one you played last.
+- **Home Farm:** open meadow on every side, a pond, and the crater to the east.
+- **River Bend:** a river wraps the west and south sides. Bunnies from across the water have to come over
+  one of four bridges, so that's where the defenses go.
+- **Old Orchard:** rows of old fruit trees crowd every edge, and bunnies come down the lanes between them.
+  The crater is in the southwest.
+
 ## The goal: seal the crater
 
 You win by funding the three stages of the **Crater Project** (a button at the top of the Farm Store).
@@ -66,6 +74,11 @@ straight out of the crater, and Bucks have 25% more health per stage. The crater
 **The Last Night** is a boss rush at night: a 25% bigger wave with three Asteroid Bucks (four in Hard Mode). The world goes
 moonlit blue, and a lantern follows your aim. Bonk every one before dawn and the crater is sealed: you
 win. If any Buck survives, the cap cracks. You go back to stage two, and re-capping costs 35% of the price.
+
+**After the win**, the cap comes down on the crater with a thud, the glow goes out, and fireworks go up over
+the farm. Then you can **Keep Farming**: same farm, no more Bucks, and the crater stays quiet, so you can
+build the farm out for as long as you like. The high score table keeps your win and notes how far you
+farmed on ("farmed on to day 50").
 
 A run also ends if you go bust (no crops in the ground and not enough credits for a seed, counting what
 your defenses would sell for) or **retire the farm** (Game menu, planning only). The top-ten high score
@@ -138,6 +151,13 @@ unsold, it fetches 5% more, up to +40% after eight evenings. Sell even one and i
 Almanac says how long it's been ("Nobody's sold carrots in town for 4 days: +20% tonight"), and the price
 next to the seed goes up with it. So it pays to rotate: let the carrots rest a few days, then cash in.
 
+**Orders from town.** From Day 3, on a morning with no order open, someone in town may post one (the diner,
+the school, the pie shop, the county fair, Mrs. Pennywhistle, the grocer): so many of a crop they like, due
+in three to five days. The order sits at the top of the Seeds tab, and its seed is highlighted. Harvest that
+many by the due day, over as many evenings as you like, and they pay a bonus on top of the market price:
+half of what those crops would normally sell for. How many they want grows with the farm. A missed order
+just lapses.
+
 ## Calendar: seasons and weather
 
 A year is 28 days: seven each of spring, summer, fall, and winter.
@@ -157,6 +177,18 @@ Each day rolls its weather from the season's odds. Day 1 is always sunny.
 | Rain | crops grow +30%, bunnies move at 85% speed |
 | Fog | 20% more bunnies |
 | Snow (winter) | crops grow ×0.85, bunnies move at 90% speed |
+
+**Events.** From Day 4, about a quarter of mornings bring something different (never on a Buck day or the Last
+Night). The Scouting Report says what, next to the weather.
+- **County Fair:** one crop that can ripen today sells for three times the price, the first 20 of it. Its seed
+  is highlighted.
+- **Hail:** partway through the day it knocks 30% off every crop's toughness (a Greenhouse keeps it off), and
+  the bunnies cower where they are for six seconds.
+- **Drought:** crops grow at 65% speed unless a sprinkler reaches them.
+- **The travelling merchant:** a cart parks by the farm for the morning. Click it for up to three deals:
+  something the store hasn't opened yet (a crop for 150¢, a defense for 220¢, a weapon for 300¢; it stays in
+  the store after), the next level of Rich Soil at half price, a Seed Lab level at half price, or the next
+  level of one of your weapons at 40% off. The cart leaves at sunrise.
 
 ## Crops
 
@@ -224,6 +256,14 @@ Upgrades cost 1×, 1.6×, 2.6×, then 4× the defense's price. Top levels add pe
 | Carrot Decoy |  20¢ | A painted wooden carrot. Bunnies within 4 tiles gnaw on it instead of your crops, and go home hungry, so they don't breed. |
 | Beehive      |  70¢ | A straw skep. Bees sting the nearest bunny every second. Pot helmets and ninja dodges don't help. |
 
+**Combos.** Some defenses work better together. A burst of sparkles and a "COMBO!" shows when one comes off,
+and the Almanac lists each defense's combo (hover a placed one and its partners light up).
+- **Soggy scare:** a scarecrow scares a bunny soaked by a sprinkler twice as long.
+- **Pollination:** a beehive with a sunflower growing in range stings twice as often.
+- **Dazed:** a Burrower knocked loose by a thumper takes double damage from turret pebbles.
+- **Watchdog:** the dog goes for bunnies chewing your fences and defenses first, and bites them harder.
+- **Bait:** a snap trap within 2 tiles of a Carrot Decoy re-arms twice as fast.
+
 ## Bunnies
 
 | Bunny          | First day | Notes |
@@ -240,6 +280,7 @@ Upgrades cost 1×, 1.6×, 2.6×, then 4× the defense's price. Top levels add pe
 | Ninja Bunny    | 31 | Charcoal, with a red headband. Sidesteps half of all pebbles (sling, pellets, turret). |
 | Bunny Queen    | 36 | Lavender, with a crown. Slow and tough. Sends a Burrower into the ground every 5 s, up to 6. |
 | Asteroid Buck  | 7, 14, 21, … | Boss, on the last day of each season. Glows green and crawls out of the crater. Ignores scarecrows and sprinklers, and eats a lot before it leaves. Pays a 100¢ bounty. |
+| Golden Bunny   | 3 | Most days, one dashes straight across the farm, zig-zagging. It doesn't eat, and your defenses can't touch it: only your own shots. Bonk it for a prize: a pouch of coins (60¢ plus 14¢ a day), a free star on one of your defenses, or a free Seed Lab level. |
 
 The number of bunnies grows every day, scaled by season, weather, and the crater's anger. After the first
 year it keeps growing but stops accelerating. Each well-fed escapee adds another bunny, up to 20. After
@@ -273,6 +314,29 @@ The original Bunny Killer shooting gallery, on the farm, from the title screen:
 
 It keeps its own best score.
 
+## Daily Farm
+
+The same ten days for everyone, each calendar day: the same farm (one of the three), weather, bunnies,
+events, and orders, from a seed made from the date. Daily Farm #1 was January 1, 2026. Your score is what you
+harvest in the ten days (going bust ends it early). The results show your score, bonks, golden bunnies, and
+orders filled, today's best, and a few lines to copy and share:
+
+```
+Bunny Killer 4 · Daily #271 · River Bend
+🥕 4,210¢ harvested in 10 days
+🐰 183 bonked · ✨ 3 golden · 📋 2 orders
+```
+
+A Daily Farm saves separately, so your own farm and the high scores are untouched, and it can be resumed
+the same day.
+
+## Achievements and the Bunny Guide
+
+Twenty-four **achievements** (Help › Achievements…, or the title screen), from First Bonk to Hard as Nails,
+Bridge Keeper, Gold Rush, Blue Ribbon, and Old School (1,000 in Classic Mode). A trophy pops up in the
+corner of the farm when one is earned. The **Bunny Guide** (Help › Bunny Guide…) fills in as you meet each
+kind of bunny: its picture, toughness and speed, what it does, and how many you've bonked across every farm. Both are kept across games.
+
 ## Look, sound, and help
 
 - **Pixels:** the world is drawn at 1× art resolution (704×512) and scaled up to the screen by a whole
@@ -302,9 +366,23 @@ It keeps its own best score.
   tutorial, and Help › Show Balloons explains anything you point at.
 - **Sound:** synthesized sound effects and a four-track chiptune score (morning, day, boss, title),
   each separately mutable.
+- **The opening:** a short scene on first launch (Help › Replay the Intro, or skip with a click or key):
+  "Autumn, 1993." A meteor comes down on the farm at night, the ground shakes, and the crater glows.
+  "Years later..."
+- **More life:** crops show bite marks as they're eaten and drop crumbs; bunnies running scared get motion
+  lines and a sweat drop; a well-fed bunny waddles home.
+- **1993 Mode** (Game menu, or the title screen): the whole game in black and white, the way a Mac Plus
+  would have shown it. Sprites become black-outlined clip art with pattern fills, sunny grass goes white with
+  its tufts left in, soil turns to plowed rows, and land not yet bought gets a dotted shade. Anything else
+  (sparks, shadows, the night) goes through an 8×8 ordered dither on its way to the screen, so the picture
+  holds still while things move. The store's pictures and the logo follow along.
+- **Touch screens:** tap where you'd click, drag to paint a row, and a tap near a bunny counts as a hit. The
+  page doesn't scroll or zoom under a finger. On a phone held sideways the Almanac steps aside so the store
+  fits; held upright, it asks to be turned.
+- **Icon:** the menubar's bunny, in the browser tab, and on a green square for a phone's home screen.
 - **Saving:** progress autosaves in the browser (localStorage).
 
 ## Not yet (ideas for later)
 
-Water, fertilizer, and more maps. Online leaderboards and daily seeds. A black-and-white "Classic Mac"
-art mode. Defense synergies. A "keep farming" option after the crater is sealed.
+Water and fertilizer. An online leaderboard for the Daily Farm. The original Bunny Killer II/3 art and
+sounds as an option in 1993 Mode.

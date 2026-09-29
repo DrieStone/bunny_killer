@@ -2,9 +2,12 @@
 
 A farm sim and tower defense game, following Bunny Killer II (1993) and Bunny Killer 3 (1994) for the Mac.
 Plant crops, set up and upgrade defenses, bonk bunnies with your sling, and harvest at sundown, through
-seasons and weather. The store opens up as you play. Crop prices move with the market. To win, fund the
-Crater Project and survive The Last Night; that opens Hard Mode. Classic Mode brings back the original
-shooting gallery. The full design is in [DESIGN.md](DESIGN.md).
+seasons and weather. The store opens up as you play. Crop prices move with the market, town sends orders,
+and some days bring a county fair, hail, a drought, or a travelling merchant. To win, fund the Crater
+Project and survive The Last Night; that opens Hard Mode, and you can keep farming after. There are three
+farms to pick from, a Daily Farm that's the same for everyone each day, achievements, and a Bunny Guide.
+Classic Mode brings back the original shooting gallery, and 1993 Mode shows it all in black and white.
+It plays on touch screens too. The full design is in [DESIGN.md](DESIGN.md).
 
 ## Play
 
@@ -43,18 +46,26 @@ straight from disk (they block its script over `file://`), which is what the one
 | `Enter` / `Esc` | when the **All clear!** box is up: skip to sundown / keep watching |
 | Click a bunny | fire (hold for the pellet gun and hose); click a dirt mound to startle a Burrower out |
 | `F` / `M` / `N` | day speed 1×/2×/4× / sound / music |
+| Touch | tap where you'd click; drag to paint a row. A tap near a bunny counts as a hit on it. |
+
+The Game menu also has **Always Skip When All Clear**, **Daily Farm…**, and **1993 Mode**; the Help menu has the
+**Bunny Guide…**, **Achievements…**, and **Replay the Intro**.
 
 ## Development
 
 ```sh
-npm test                                       # headless rules tests (pathfinding, economy, unlocks, the Crater Project, market, saves)
+npm test                                       # headless rules tests (pathfinding, economy, unlocks, the Crater Project, market,
+                                               # orders, events, combos, golden bunnies, farms, the Daily Farm, achievements, saves)
 BALANCE=1 SEED=7 npm test -- tests/balance.test.ts   # 70-day campaigns for four bot skill levels (SEED, DAYS=n, HARD=1)
+BALANCE=1 SEED=7 REPS=6 npm test -- tests/balance.test.ts   # six seeded replays per skill, one summary line each
 npm run typecheck
 ```
 
 - Balance numbers (crops, defenses, upgrades, bunnies, seasons, weather, prices) are all in `src/config.ts`.
 - `http://localhost:5190/sprites.html` shows every sprite blown up, for art work.
-- In dev builds, `window.bk4` exposes `game`, `ui`, `hooks`, and `step(seconds)` for poking at the game from the console.
+- In dev builds, `window.bk4` exposes `game`, `ui`, `hooks`, `renderer`, and `step(seconds)` for poking at the game from the console.
+- Balance: judge a change over several seeds (99, 7, 3) with `REPS=6`, not one run. When a bot busts or wins oddly, check
+  its own habits in `tests/helpers.ts` before retuning the game.
 - Scripts that drive the game in headless Chrome and write screenshots to `shots/` (run them from the repo root while the dev server is up):
   - `scripts/tour.mjs`: the main screens, at Retina scale
   - `scripts/progress.mjs`: unlocks, the Crater Project, the Last Night, and the Year 2 bunnies
@@ -64,6 +75,13 @@ npm run typecheck
   - `scripts/art2.mjs`: a close-up of the crops, defenses, and shop icons drawn in code
   - `scripts/modes.mjs`: the All clear! box, Repair All, and Hard Mode (title, intro, a hard morning, the victory screen)
   - `scripts/smoke.mjs`: the smoke bomb: aiming at the crater, the smoke, and the Buck it brings out
+  - `scripts/growth.mjs`: the ripening tags on the seed shelf and the growth Almanac
+  - `scripts/farms.mjs`: the farm picker, River Bend, and Old Orchard
+  - `scripts/golden.mjs`, `events.mjs`, `combos.mjs`: golden bunnies, the day's events (fair, hail, drought, the merchant's cart), and combos
+  - `scripts/victory.mjs`: the cap coming down, the fireworks, and Keep Farming
+  - `scripts/daily.mjs`, `trophies.mjs`: the Daily Farm and its results, achievements, and the Bunny Guide
+  - `scripts/touch.mjs`: a morning and a day played with taps, on an iPad and on a phone held sideways
+  - `scripts/retro.mjs`: 1993 Mode, and how long its black-and-white pass takes
   - also `scripts/shot.mjs`, `playtest.mjs`, `fx.mjs`, `seasons.mjs`, `classic.mjs`, and `burrows.mjs`
 
 ## Art pipeline
@@ -89,13 +107,15 @@ src/
   sim/bunnies.ts   bunny AI: seek, eat, chew, spooked, flee
   sim/defenses.ts  traps, scarecrows, sprinklers, turrets, dogs, pebbles
   path.ts          grid Dijkstra
-  world.ts         map layout, the grid of lots, scenery, burrows
+  world.ts         the three farms' layouts, the grid of lots, scenery, burrows, the Daily Farm's pick
+  achievements.ts  the achievements and what earns them
   classic.ts       Classic Mode rules (the shooting gallery)
-  render/          sprite loading, the renderer (ground, lighting, weather), particles, pixel font
+  render/          sprite loading, the renderer (ground, lighting, weather), particles, pixel font,
+                   icons drawn in code, and mono.ts (1993 Mode's black and white)
   art/sprites/     processed sprites (generated by scripts/process-sprites.py)
   ui/ui.ts         System 7 chrome: menubar, Farm Store, Almanac, dialogs
   ui/balloons.ts   Balloon Help and the first-game tutorial
   audio.ts         synthesized sound effects (WebAudio, no files)
   music.ts         the chiptune sequencer and its four songs
-  save.ts          localStorage autosave and best score
+  save.ts          localStorage: the autosave, settings, high scores, the Daily Farm, achievements, the Bunny Guide
 ```

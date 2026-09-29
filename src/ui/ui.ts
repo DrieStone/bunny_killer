@@ -1223,6 +1223,7 @@ export class UI {
             <li>Crops grow while bunnies go for the tastiest one they can reach.</li>
             <li><b>Click a bunny</b> to fire. Poof! Buy more weapons in the store's Weapons tab; switch with <span class="kbd">1</span>–<span class="kbd">5</span>.</li>
             <li>Burrowers pop up now and then. Hit them then, or hit their mound to startle them out.</li>
+            <li>A <b>golden bunny</b> dashes across some days. Only your own shots can catch it, and it pays well.</li>
             <li>Every bunny that gets home fed brings a friend tomorrow.</li>
             <li>Once they're all dealt with, <b>All clear!</b> lets you skip to sundown (<span class="kbd">Enter</span>).</li>
           </ul>
@@ -1234,6 +1235,9 @@ export class UI {
             <li>Sell too many of one crop in an evening and the price sags. Mix it up.</li>
             <li>Unripe crops stay in the ground for tomorrow.</li>
             <li>Growing faster pays when a crop ripens a day sooner or fruits twice a day. Green tags on the seeds show it.</li>
+            <li>Town sends <b>orders</b> (in the Seeds tab): fill one by its day for a bonus. Some mornings bring a fair,
+            hail, a drought, or a merchant's cart.</li>
+            <li>Some defenses pull off <b>combos</b> together. The Almanac says which.</li>
             <li>New seeds, defenses, weapons and upgrades unlock as you play. The Seed Lab and farm upgrades make crops grow faster and sell higher.</li>
             <li>Go broke with nothing growing and the farm is done.</li>
           </ul>
@@ -1243,6 +1247,7 @@ export class UI {
             <li><span class="kbd">Space</span> start the day / pause</li>
             <li><span class="kbd">F</span> speed (1×, 2×, 4×), <span class="kbd">M</span> sound, <span class="kbd">N</span> music</li>
             <li>Right-click digs up or sells; <span class="kbd">Esc</span> puts down the tool</li>
+            <li>On a touch screen, tap where you'd click</li>
           </ul>
         </div>
       </div>
@@ -1254,7 +1259,7 @@ export class UI {
     this.open('about', `
       <div class="icon-row">${spriteImg(sprites().bunnies.common.frames[0], 3)}
       <div><h1>Bunny Killer 4</h1>
-      <p>Version 0.4 (prototype)</p>
+      <p>Version 0.6 (prototype)</p>
       <p>The follow-up to Bunny Killer II (1993) and Bunny Killer 3 (1994) for the Macintosh.</p>
       <p>Part farm, part tower defense, all bunny.</p></div></div>
       <div class="buttons"><button class="btn default" data-act="ok">OK</button></div>`, { ok: back }, { Enter: 'ok', Escape: 'ok' });
