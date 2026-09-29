@@ -1207,7 +1207,8 @@ export class Game {
     if (!rule || this.unlocked.has(what)) return null;
     const have = this.progress(rule.goal);
     const sofar = rule.goal === 'day' ? '' : ` (${have.toLocaleString('en-US')} so far)`;
-    const when = rule.goal === 'day' ? `on Day ${rule.n}` : rule.goal === 'bucks'
+    const wait = rule.n - this.round;
+    const when = rule.goal === 'day' ? `on Day ${rule.n}${wait === 1 ? ', tomorrow' : wait > 1 ? `, in ${wait} days` : ''}` : rule.goal === 'bucks'
       ? `after ${rule.n === 1 ? 'an Asteroid Buck' : `${rule.n} Bucks`}`
       : `at ${goalText(rule.goal, rule.n)}`;
     const plural = what.startsWith('upgrade') || what === 'smoke'; // "★★ upgrades unlock", "Smoke Bombs unlock"

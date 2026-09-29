@@ -137,6 +137,9 @@ const SEASON_SHORT: Record<string, string> = {
 
 const signed = (v: number) => `${v < 0 ? '−' : '+'}${Math.abs(Math.round(v))}¢`;
 
+/** Evenings left for something due `left` days from today, counting tonight: "tonight", "2 days", ... */
+const daysLeft = (left: number): string => (left <= 0 ? 'tonight' : `${left + 1} days, counting tonight`);
+
 /** One line for today's event, for the Scouting Report. */
 function eventLine(g: Game): string {
   const e = g.event!;
@@ -657,7 +660,7 @@ export class UI {
     const news = [`<b>${g.waveTotal()}</b> bunnies are coming: ${kinds.join(', ')}.`, ...todayTips(g, returns)];
     const more = growMore(g, returns);
     this.open('report', `
-      <h1>Morning Report <small>· Day ${g.round} · ${this.calendar()}</small></h1>
+      <h1>Morning Report <small>· ${this.dated()}</small></h1>
       <div class="report">
         <div class="wx-row"><span class="wx-big">${WEATHER_ICON[g.weather]}</span>
           <div>${weatherLines(g).map((l) => `<p>${l}</p>`).join('')}</div></div>
@@ -754,7 +757,7 @@ export class UI {
     const g = this.game;
     if (this.classic) return `Classic · ${Math.max(0, Math.ceil(CLASSIC_SECONDS - this.classic.time))}s left`;
     if (g.phase === 'title') return 'Bunny Killer 4';
-    const when = `${this.calendar()} · ${WEATHER_ICON[g.weather]}`;
+    const when = `${this.dated()} · ${WEATHER_ICON[g.weather]}`;
     switch (g.phase) {
       case 'planning': return `${when} · Dawn`;
       case 'round': {
@@ -774,16 +777,23 @@ export class UI {
   }
 
   /** "Spring 3, Year 1" */
+  /** "Fall 2, Year 1": the season's day and the year. */
   private calendar(): string {
     const g = this.game;
     const dayOfSeason = ((g.round - 1) % 7) + 1;
     return `${SEASONS[g.season].name} ${dayOfSeason}, Year ${yearOf(g.round)}`;
   }
 
+  /** "Day 16 · Fall 2, Year 1": the day count first, since deadlines and unlocks go by it. */
+  private dated(bold = false): string {
+    const day = `Day ${this.game.round}`;
+    return bold ? `<b>${day}</b> <span class="cal">· ${this.calendar()}</span>` : `${day} · ${this.calendar()}`;
+  }
+
   private updatePlanning(): void {
     const g = this.game;
     this.set('credits', `¢${g.credits}`);
-    this.set('day-label', this.calendar());
+    this.set('day-label', this.dated(true));
     for (const [k, el] of this.itemEls) {
       const item = this.items.get(k)!;
       const what = unlockOf(item);
@@ -925,7 +935,7 @@ export class UI {
     const g = this.game;
     const rs = g.roundStats;
     this.set('credits2', `¢${g.credits}`);
-    this.set('day-label2', this.calendar());
+    this.set('day-label2', this.dated(true));
     this.set('sun-label', g.lastNight ? 'Until dawn' : 'Daylight');
     const frac = g.phase === 'round' ? Math.min(1, g.time / ROUND_SECONDS) : 1;
     ($('sunbar') as HTMLElement).style.width = `${(1 - frac) * 100}%`;
@@ -1109,7 +1119,7 @@ export class UI {
         if (!o) return '';
         const left = o.due - g.round;
         return `<div class="title">Order from town</div><p>${o.who} wants ${o.want} ${cropPlural(o.kind, o.want)} by ` +
-          `${left === 0 ? 'tonight' : `Day ${o.due}`}, and will pay a <b>${o.bonus}¢</b> bonus on top of the market price.</p>` +
+          `${left === 0 ? 'tonight' : `Day ${o.due} (${daysLeft(left)})`}, and will pay a <b>${o.bonus}¢</b> bonus on top of the market price.</p>` +
           `<p class="hint">${o.got} so far. Every one you harvest counts, ${left === 0 ? 'tonight only' : `through ${left === 1 ? 'tomorrow' : `Day ${o.due}`}`}. ` +
           'Let it go and nothing bad happens.</p>';
       }

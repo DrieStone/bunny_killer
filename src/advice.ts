@@ -127,7 +127,8 @@ export function todayTips(g: Game, returns = cropReturns(g)): string[] {
   const o = g.order;
   if (o) {
     const left = o.due - g.round;
-    out.push(`${o.who} wants ${o.want} ${cropPlural(o.kind, o.want)} by ${left === 0 ? 'tonight' : `Day ${o.due}`}: a ${o.bonus}¢ bonus. ${o.got} so far.`);
+    out.push(`${o.who} wants ${o.want} ${cropPlural(o.kind, o.want)} by ${left === 0 ? 'tonight' : `Day ${o.due}, ${left + 1} days counting today`}: ` +
+      `a ${o.bonus}¢ bonus. ${o.got} so far.`);
   }
   const missed = [...CROP_ORDER].filter((k) => g.isUnlocked(k) && g.demand(k) >= 0.1).sort((a, b) => g.demand(b) - g.demand(a))[0];
   if (missed) out.push(`Nobody's sold ${name(missed)} in a while: they fetch ${Math.round(g.demand(missed) * 100)}% more tonight.`);

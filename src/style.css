@@ -146,7 +146,8 @@ body.mono #menubar, body.mono #side, body.mono #modal-layer, body.mono #farm-win
 
 .money { display: flex; flex: none; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
 .money .credits { font: bold 18px/22px Monaco, Menlo, monospace; letter-spacing: -1px; }
-.money .day { font-weight: bold; font-size: 11px; }
+.money .day { font-size: 11px; }
+.money .day .cal { text-shadow: none; } /* "Day 16" struck bold, the season and year after it plain */
 
 .items { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 2px; }
 .item {
