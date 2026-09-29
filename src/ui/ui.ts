@@ -651,7 +651,7 @@ export class UI {
       case 'harvest':
       case 'summary': return `${when} · Evening`;
       case 'victory': return 'Crater sealed';
-      default: return 'Foreclosed';
+      default: return g.dailyDone ? `Daily #${g.dailyNumber} done` : g.retired ? 'Retired' : 'Foreclosed';
     }
   }
 
