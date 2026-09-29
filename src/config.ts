@@ -650,10 +650,10 @@ export interface ModeDef {
 export const MODES: Record<Mode, ModeDef> = {
   normal: { name: 'Normal', waves: 1, hp: 1, bossHp: 1, anger: 1, lastNightBucks: 3, firstRound: {}, blurb: '' },
   hard: {
-    name: 'Hard', waves: 1.3, hp: 1.1, bossHp: 1.35, anger: 1.5, lastNightBucks: 4,
+    name: 'Hard', waves: 1.5, hp: 1.25, bossHp: 1.35, anger: 1.5, lastNightBucks: 4,
     // Year 2's troublemakers show up in Year 1
     firstRound: { pothead: 8, leaper: 9, bandit: 12, ninja: 16, queen: 23 },
-    blurb: 'A third more bunnies every day, and tougher ones. Ninjas and Queens show up in the first year, the crater ' +
+    blurb: 'Half again as many bunnies every day, and tougher ones. Ninjas and Queens show up in the first year, the crater ' +
       'gets angrier with every stage, and four Asteroid Bucks come out on the Last Night.',
   },
 };

@@ -84,17 +84,18 @@ A run also ends if you go bust (no crops in the ground and not enough credits fo
 your defenses would sell for) or **retire the farm** (Game menu, planning only). The top-ten high score
 table ranks farms that sealed the crater first, fastest on top, and the rest by lifetime harvest.
 
-With the current numbers, the test bots (three seeds, six seeded replays each) play like this:
-- **Sharp:** seals the crater every time, on day 30–36.
-- **Decent:** every time, on day 30–37.
-- **Casual:** on day 33–40, and goes bust about one run in eighteen.
+With the current numbers, the test bots (three seeds, six seeded replays each) play like this. Golden bunnies,
+orders, and the fair make a farm richer than it used to be, so the crater comes down a few days sooner:
+- **Sharp:** seals the crater every time, on day 26–32.
+- **Decent:** every time, on day 26–32.
+- **Casual:** every time, on day 28–37.
 
 ## Hard Mode
 
 Sealing the crater opens **Hard Mode** (on the title screen, and on the victory screen). Prices, crops, and
 the Crater Project are the same. The pressure isn't:
-- 30% more bunnies every day.
-- Regular bunnies are 10% tougher, so a plain bunny needs two hits a couple of days sooner. Bucks are 35%
+- 50% more bunnies every day.
+- Regular bunnies are 25% tougher, so a plain bunny needs two hits from day 9 instead of day 14. Bucks are 35%
   tougher.
 - The crater gets angry 50% faster with every stage.
 - Year 2's bunnies come in Year 1: Pot-Heads from day 8, Leapers day 9, Bandits day 12, Ninjas day 16,
@@ -102,7 +103,8 @@ the Crater Project are the same. The pressure isn't:
 - The Last Night brings four Asteroid Bucks.
 
 The window title says "(Hard)". Hard wins are marked HARD on the high score table and rank ahead of
-normal ones. The bots: sharp seals it in 16 of 18 runs (day 32–42), decent in 13, casual in 5.
+normal ones. The bots: sharp seals it in 16 of 18 runs (day 27–40), decent in 12 (day 32–45), and casual in 6
+(day 35–55). A failed Last Night costs days: the retries are where most of the long games come from.
 
 ## Unlocks
 
