@@ -10,7 +10,7 @@ import { CLASSIC_RELOAD, CLASSIC_SECONDS } from '../classic';
 import type { Game } from '../game';
 import { hashSeed } from '../rng';
 import type { Bunny, Dog, GameEvent, ShopItem, Structure } from '../types';
-import { CRATER, idx, inCrater, inMap, lotOfTile, lotRect, SCENERY, type Scenery, tileX, tileY } from '../world';
+import { CRATER, currentMap, idx, inCrater, inMap, lotOfTile, lotRect, SCENERY, type Scenery, tileX, tileY, WATER } from '../world';
 import { BUNNY_COLORS } from './palette';
 import { dottedCircle, Particles, pixelDisc, pixelLine } from './particles';
 import { drawText, OUTLINE, PixelGrid, textWidth } from './pixels';
@@ -56,6 +56,9 @@ const LEAVES = ['#e0892e', '#c9562a', '#f2c14e', '#a8412a'];
 const BLADE_DARK = '#3f7a2b';
 const BLADE_LIGHT = '#a9e06a';
 const SOIL = { hi: '#86593a', body: '#744c31', mid: '#69442b', furrow: '#573823', deep: '#442b1a', clod: '#8f6443' };
+const RIVER = { deep: '#2c6aa0', body: '#3a80bb', light: '#62a6dc', foam: '#cfeaff', bank: '#a88b58', mud: '#6e5a3a' };
+const RIVER_WINTER = { deep: '#5a8fb8', body: '#78a8cc', light: '#a8cce6', foam: '#f2faff', bank: '#b8a888', mud: '#7c6c52' };
+const BRIDGE = { plank: '#9a6a3c', light: '#b8834e', gap: '#5e3c20', rail: '#6e4626', post: '#4e301a' };
 const FLOWERS = ['#ffffff', '#ffe066', '#ff9ec4', '#c7a6ff', '#8fd3ff'];
 
 /** Smooth value noise in [0,1], deterministic. */
@@ -329,7 +332,7 @@ export class Renderer {
     const ctx = this.ctx;
     const title = g.phase === 'title';
     this.season = title ? 'spring' : g.season;
-    const key = `${title ? 'title' : g.tillEpoch}:${this.season}`;
+    const key = `${currentMap()}:${title ? 'title' : g.tillEpoch}:${this.season}`;
     if (!this.bg || this.bgKey !== key) this.buildBackground(title ? null : g.tilled, key);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -391,6 +394,7 @@ export class Renderer {
     c.height = WORLD_H;
     const ctx = c.getContext('2d')!;
     ctx.drawImage(this.meadowFor(this.season), 0, 0);
+    this.paintRiver(ctx);
     if (tilled) {
       const winter = this.season === 'winter';
       if (this.soilTiles.length === 0) this.soilTiles = [0, 1, 2, 3].map((v) => this.soilTile(v));
@@ -438,6 +442,66 @@ export class Renderer {
     }
     this.bg = c;
     this.bgKey = key;
+  }
+
+  /** River Bend's river: water with ripples and muddy banks, and plank bridges where it can be crossed. */
+  private paintRiver(ctx: CanvasRenderingContext2D): void {
+    const c = this.season === 'winter' ? RIVER_WINTER : RIVER;
+    const wet = (x: number, y: number) => !inMap(x, y) || WATER[idx(x, y)] > 0;
+    for (let i = 0; i < WATER.length; i++) {
+      if (!WATER[i]) continue;
+      const tx = tileX(i);
+      const ty = tileY(i);
+      const px = tx * T;
+      const py = ty * T;
+      ctx.fillStyle = c.body;
+      ctx.fillRect(px, py, T, T);
+      // slow ripples and darker eddies
+      for (let n = 0; n < 7; n++) {
+        const rx = px + Math.floor(rand(i, n, 71) * (T - 6));
+        const ry = py + Math.floor(rand(i, n, 72) * (T - 2));
+        ctx.fillStyle = n % 3 ? c.light : c.deep;
+        ctx.fillRect(rx, ry, 3 + Math.floor(rand(i, n, 73) * 4), 1);
+      }
+      // banks: mud, then a line of foam where the water meets land
+      const bank = (x: number, y: number, w: number, h: number, fx: number, fy: number, fw: number, fh: number) => {
+        ctx.fillStyle = c.bank;
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = c.mud;
+        ctx.fillRect(fx, fy, fw, fh);
+      };
+      if (!wet(tx, ty - 1)) { bank(px, py, T, 3, px, py + 3, T, 1); ctx.fillStyle = c.foam; ctx.fillRect(px, py + 4, T, 1); }
+      if (!wet(tx, ty + 1)) { bank(px, py + T - 3, T, 3, px, py + T - 4, T, 1); ctx.fillStyle = c.foam; ctx.fillRect(px, py + T - 5, T, 1); }
+      if (!wet(tx - 1, ty)) { bank(px, py, 3, T, px + 3, py, 1, T); ctx.fillStyle = c.foam; ctx.fillRect(px + 4, py, 1, T); }
+      if (!wet(tx + 1, ty)) { bank(px + T - 3, py, 3, T, px + T - 4, py, 1, T); ctx.fillStyle = c.foam; ctx.fillRect(px + T - 5, py, 1, T); }
+      if (WATER[i] === 2) this.paintBridge(ctx, px, py, wet(tx, ty - 1) || wet(tx, ty + 1));
+    }
+  }
+
+  /** Planks across a river tile. `across` means the river runs up and down here, so the bridge runs left to right. */
+  private paintBridge(ctx: CanvasRenderingContext2D, px: number, py: number, across: boolean): void {
+    // work in "along the bridge" (u) and "across the deck" (v) so both directions share one drawing
+    const at = (u: number, v: number, w: number, h: number) =>
+      (across ? ctx.fillRect(px + u, py + v, w, h) : ctx.fillRect(px + v, py + u, h, w));
+    const deck0 = 5;
+    const deck1 = T - 5;
+    ctx.fillStyle = BRIDGE.plank;
+    at(0, deck0, T, deck1 - deck0);
+    for (let u = 0; u < T; u += 4) {
+      ctx.fillStyle = BRIDGE.gap;
+      at(u, deck0, 1, deck1 - deck0);
+      ctx.fillStyle = BRIDGE.light;
+      at(u + 1, deck0, 1, 2);
+    }
+    // rails along both edges, with posts at the ends
+    ctx.fillStyle = BRIDGE.rail;
+    at(0, deck0 - 2, T, 2);
+    at(0, deck1, T, 2);
+    ctx.fillStyle = BRIDGE.post;
+    for (const u of [1, T - 4]) {
+      at(u, deck0 - 4, 3, 4);
+      at(u, deck1, 3, 4);
+    }
   }
 
   /** The meadow for a season: soft patches of grass, tufts, clover and flowers (leaves in fall, snow in winter). */
@@ -1166,10 +1230,16 @@ export class Renderer {
       ctx.fillStyle = '#3a2a1a';
       ctx.fillRect(x, y - 2, 1, 3);
     }
-    // the pond twinkles
+    // the pond and the river twinkle
     const pond = SCENERY.find((o) => o.kind === 'pond');
     if (pond && Math.random() < 0.06) {
       this.fx.add({ kind: 'sparkle', x: (pond.x + 0.4 + Math.random() * 1.2) * T, y: (pond.y + 0.8 + Math.random() * 0.8) * T, life: 0.5, color: '#ffffff' });
+    }
+    if (currentMap() === 'river' && Math.random() < 0.3) {
+      const i = Math.floor(Math.random() * WATER.length);
+      if (WATER[i] === 1) {
+        this.fx.add({ kind: 'sparkle', x: (tileX(i) + 0.2 + Math.random() * 0.6) * T, y: (tileY(i) + 0.3 + Math.random() * 0.4) * T, life: 0.45, color: '#ffffff' });
+      }
     }
     void g;
   }

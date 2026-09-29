@@ -6,17 +6,18 @@ import {
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
 } from '../config';
 import type { Game } from '../game';
-import { dataURL, farmIcon, iconURL, menuBunny, repairIcon, spriteImg, weaponIcon } from '../render/icons';
+import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, repairIcon, spriteImg, weaponIcon } from '../render/icons';
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
 import type { ScoreEntry } from '../save';
 import type { ShopItem } from '../types';
 import type { DefenseKind } from '../config';
-import { idx, inCrater, lotOfTile, tileX, tileY } from '../world';
+import { FARMS, idx, inCrater, lotOfTile, MAP_ORDER, type MapKind, tileX, tileY } from '../world';
 
 export interface UiHooks {
-  newGame(mode?: Mode): void;
+  newGame(mode?: Mode, map?: MapKind): void;
+  lastFarm(): MapKind;
   hardOpen(): boolean; // Hard Mode opens once you've sealed the crater
   continueGame(): void;
   toTitle(): void;
@@ -1078,24 +1079,45 @@ export class UI {
       help: () => this.showHelp(() => this.showTitle()),
       scores: () => this.showHighScores(() => this.showTitle()),
       classic: () => this.showClassicIntro(),
-      new: () => (save ? this.confirmNewGame(() => this.showTitle(), 'normal') : this.hooks.newGame('normal')),
+      new: () => this.chooseFarm('normal', () => this.showTitle()),
       hard: () => this.showHardIntro(() => this.showTitle()),
       continue: () => this.hooks.continueGame(),
     }, { Enter: save ? 'continue' : 'new' });
     $('logo-host').appendChild(makeLogo());
   }
 
+  /** Game › New Game…: pick a farm, same difficulty as the one you're on. */
   confirmNewGame(back?: () => void, mode: Mode = this.game.mode): void {
-    if (!this.hooks.hasSave() || this.game.phase === 'gameover' || this.game.phase === 'victory') {
-      this.hooks.newGame(mode);
+    this.chooseFarm(mode, back);
+  }
+
+  /** Pick which farm to start on. Enter takes the one you played last. */
+  chooseFarm(mode: Mode, back?: () => void): void {
+    const last = this.hooks.lastFarm();
+    const cards = MAP_ORDER.map((k) => `<button class="farm-card${k === last ? ' last' : ''}" data-act="farm:${k}">` +
+      `<img src="${dataURL(farmMiniMap(k))}" alt=""><b>${FARMS[k].name}</b><span>${FARMS[k].blurb}</span></button>`).join('');
+    const again = () => this.chooseFarm(mode, back);
+    const actions: Record<string, () => void> = { back: () => (back ? back() : this.dismiss()) };
+    for (const k of MAP_ORDER) actions[`farm:${k}`] = () => this.startFarm(mode, k, again);
+    this.open('farms', `<h1>${mode === 'hard' ? 'Hard Mode: pick a farm' : 'Pick a farm'}</h1>` +
+      `<div class="farm-cards">${cards}</div><div class="buttons"><button class="btn" data-act="back">Back</button></div>`,
+    actions, { Escape: 'back', Enter: `farm:${last}` });
+  }
+
+  /** Start on a farm, after making sure the player means to give up the one in progress. */
+  private startFarm(mode: Mode, map: MapKind, back: () => void): void {
+    const g = this.game;
+    if (!this.hooks.hasSave() || g.phase === 'gameover' || g.phase === 'victory') {
+      this.hooks.newGame(mode, map);
       return;
     }
+    const day = g.phase === 'title' ? '' : ` (Day ${g.round})`;
     this.open('confirm', `
       <div class="icon-row">${spriteImg(sprites().bunnies.mutant.frames[0], 1)}
-      <div><h1>Start a new farm${mode === 'hard' ? ' in Hard Mode' : ''}?</h1><p>Your current farm (Day ${this.game.round}) will be lost.</p></div></div>
+      <div><h1>Start over on ${FARMS[map].name}${mode === 'hard' ? ' in Hard Mode' : ''}?</h1><p>Your current farm${day} will be lost.</p></div></div>
       <div class="buttons"><button class="btn" data-act="cancel">Cancel</button><button class="btn default" data-act="ok">New Game</button></div>`, {
-      cancel: () => (back ? back() : this.dismiss()),
-      ok: () => this.hooks.newGame(mode),
+      cancel: back,
+      ok: () => this.hooks.newGame(mode, map),
     }, { Escape: 'cancel', Enter: 'ok' });
   }
 
@@ -1265,8 +1287,8 @@ export class UI {
           : '<button class="btn" data-act="new">New Game</button><button class="btn default" data-act="hard">Hard Mode ▸</button>'}</div>`,
     {
       title: () => this.hooks.toTitle(),
-      new: () => this.hooks.newGame('normal'),
-      hard: () => this.hooks.newGame('hard'),
+      new: () => this.chooseFarm('normal', () => this.showVictory(rank)),
+      hard: () => this.chooseFarm('hard', () => this.showVictory(rank)),
       scores: () => this.showHighScores(() => this.showVictory(rank)),
     }, { Enter: 'hard' });
   }
@@ -1291,7 +1313,7 @@ export class UI {
       <div class="buttons"><button class="btn left" data-act="scores">High Scores</button><button class="btn" data-act="title">Title Screen</button><button class="btn default" data-act="new">New Game</button></div>`,
     {
       title: () => this.hooks.toTitle(),
-      new: () => this.hooks.newGame(g.mode),
+      new: () => this.chooseFarm(g.mode, () => this.showGameOver(rank)),
       scores: () => this.showHighScores(() => this.showGameOver(rank)),
     }, { Enter: 'new' });
   }
@@ -1305,7 +1327,7 @@ export class UI {
       <p>Prices, crops and the Crater Project stay the same. You'll just have to earn it.</p></div></div>
       <div class="buttons"><button class="btn" data-act="back">Back</button><button class="btn default" data-act="go">Start</button></div>`, {
       back,
-      go: () => (this.hooks.hasSave() ? this.confirmNewGame(back, 'hard') : this.hooks.newGame('hard')),
+      go: () => this.chooseFarm('hard', () => this.showHardIntro(back)),
     }, { Enter: 'go', Escape: 'back' });
   }
 

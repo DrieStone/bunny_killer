@@ -3,6 +3,7 @@ import { Sfx } from './audio';
 import { Classic, type ClassicEvent } from './classic';
 import { Music, type Song } from './music';
 import { type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
+import { FARMS, type MapKind } from './world';
 import { Game } from './game';
 import { Renderer, type View } from './render/renderer';
 import { loadSprites } from './render/sprites';
@@ -53,13 +54,16 @@ function freshStart(): void {
 }
 
 const hooks: UiHooks = {
-  newGame(mode: Mode = 'normal') {
+  newGame(mode: Mode = 'normal', map: MapKind = 'home') {
     store.clearSave();
-    game.newGame(undefined, mode);
+    game.newGame(undefined, mode, map);
     freshStart();
     persist();
-    ui.banner(mode === 'hard' ? 'Day 1 · Hard Mode' : 'Day 1', 'Plant some seeds, then start the day');
+    settings.lastFarm = map;
+    store.saveSettings(settings);
+    ui.banner(mode === 'hard' ? 'Day 1 · Hard Mode' : 'Day 1', `${FARMS[map].name} · plant some seeds, then start the day`);
   },
+  lastFarm: () => settings.lastFarm,
   hardOpen: store.hardModeOpen,
   continueGame() {
     const save = store.loadSave();

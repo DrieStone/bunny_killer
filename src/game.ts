@@ -16,7 +16,10 @@ import type {
   Bunny, Burrow, Crop, Dog, GameEvent, LifetimeStats, Phase, Projectile, RoundStats, Shell, ShopItem, SpawnEntry,
   Structure, Tile,
 } from './types';
-import { CRATER, CRATER_SPAWN, idx, inCrater, inMap, inRect, lotOf, lotOfTile, lotRect, lotTiles, N, OBSTACLE, pickBurrows, type Rect, tileX, tileY } from './world';
+import {
+  CRATER, CRATER_SPAWN, idx, inCrater, inMap, inRect, lotOf, lotOfTile, lotRect, lotTiles, type MapKind, N, OBSTACLE, pickBurrows,
+  type Rect, setMap, tileX, tileY,
+} from './world';
 
 // v2: the 22x14 farm, the Crater Project, the market. v3: weapons, farm upgrades, the Seed Lab.
 // v4: a 22x16 map, land bought by the lot and tilled by the tile. Older saves are brought up to date.
@@ -54,6 +57,7 @@ export interface SaveData {
   tilled?: number[]; // tilled tiles
   mode?: Mode; // hard mode, once it's open (normal if missing)
   smoked?: boolean; // a smoke bomb went into the crater this morning
+  map?: MapKind; // which farm (Home Farm if missing)
 }
 
 /**
@@ -148,6 +152,7 @@ export class Game {
   phase: Phase = 'title';
   seed = 1;
   mode: Mode = 'normal';
+  map: MapKind = 'home';
   round = 1;
   credits = START_CREDITS;
   lots = startLots(); // which lots you own
@@ -216,9 +221,11 @@ export class Game {
 
   // ------------------------------------------------------------ lifecycle
 
-  newGame(seed = (Math.random() * 2 ** 31) | 0, mode: Mode = 'normal'): void {
+  newGame(seed = (Math.random() * 2 ** 31) | 0, mode: Mode = 'normal', map: MapKind = 'home'): void {
     this.seed = seed;
     this.mode = mode;
+    this.map = map;
+    setMap(map);
     this.retired = false;
     this.round = 1;
     this.credits = START_CREDITS;
@@ -254,6 +261,7 @@ export class Game {
 
   /** Set up the scouting report for the current round and open the store. `newDay` is false when loading a save. */
   private enterPlanning(newDay = true): void {
+    setMap(this.map);
     this.phase = 'planning';
     this.phaseTime = 0;
     this.time = 0;
@@ -410,6 +418,7 @@ export class Game {
   // ------------------------------------------------------------ per-frame
 
   update(dt: number): void {
+    if (setMap(this.map)) this.costDirty = true; // (free unless another game switched farms, as tests do)
     this.phaseTime += dt;
     if (this.phase === 'round' || this.phase === 'sundown') {
       this.stepDay(dt);
@@ -422,6 +431,8 @@ export class Game {
 
   /** A few bunnies loafing around the empty meadow behind the title screen. */
   setupAttract(): void {
+    this.map = 'home';
+    setMap('home');
     this.phase = 'title';
     this.resetTiles();
     this.rng = makeRng(7);
@@ -1414,7 +1425,7 @@ export class Game {
       });
     });
     return {
-      v: SAVE_VERSION, seed: this.seed, round: this.round, credits: this.credits, mode: this.mode,
+      v: SAVE_VERSION, seed: this.seed, round: this.round, credits: this.credits, mode: this.mode, map: this.map,
       breedBonus: this.breedBonus, stats: { ...this.stats }, tiles,
       lots: this.lots.flatMap((own, n) => (own ? [n] : [])), lotsBought: this.lotsBought,
       tilled: [...this.tilled.keys()].filter((i) => this.tilled[i]),
@@ -1425,6 +1436,8 @@ export class Game {
   }
 
   loadSave(d: SaveData): void {
+    this.map = d.map === 'river' || d.map === 'orchard' ? d.map : 'home';
+    setMap(this.map);
     this.seed = d.seed;
     this.mode = d.mode === 'hard' ? 'hard' : 'normal';
     this.round = d.round;

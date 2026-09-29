@@ -1,5 +1,6 @@
 // Browser persistence: the current farm, the best run, and settings.
 import { migrateSave, type SaveData } from './game';
+import type { MapKind } from './world';
 
 const SAVE_KEY = 'bk4.save';
 const BEST_KEY = 'bk4.best';
@@ -17,6 +18,7 @@ export interface Settings {
   muted: boolean;
   musicMuted: boolean;
   autoSkip: boolean; // skip to sundown by itself once the day's bunnies are dealt with
+  lastFarm: MapKind; // the farm picked last time, offered first next time
 }
 
 function read<T>(key: string): T | null {
@@ -60,7 +62,9 @@ export function recordBest(score: number, round: number): boolean {
   return true;
 }
 
-export const loadSettings = (): Settings => ({ muted: false, musicMuted: false, autoSkip: false, ...read<Settings>(SETTINGS_KEY) });
+export const loadSettings = (): Settings => ({
+  muted: false, musicMuted: false, autoSkip: false, lastFarm: 'home', ...read<Settings>(SETTINGS_KEY),
+});
 export const saveSettings = (s: Settings): void => write(SETTINGS_KEY, s);
 
 // ---------------------------------------------------------------- high scores

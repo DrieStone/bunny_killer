@@ -1,5 +1,6 @@
 // Sprite helpers for the HTML side: shop icons, <img> tags, and the tiny menubar bunny.
-import type { CropKind, DefenseKind, FarmUpgrade, WeaponKind } from '../config';
+import { type CropKind, type DefenseKind, FARM_X0, FARM_Y0, type FarmUpgrade, LOT, LOTS_X, LOTS_Y, START_LOTS, type WeaponKind } from '../config';
+import { FARMS, type MapKind } from '../world';
 import { PixelGrid } from './pixels';
 import { type Img, sprites } from './sprites';
 
@@ -350,4 +351,77 @@ export function farmIcon(kind: FarmUpgrade | 'lab'): Img {
   let i = shopIcons.get(`farm:${kind}`);
   if (!i) shopIcons.set(`farm:${kind}`, (i = icon16(FARM_ICONS[kind])));
   return i;
+}
+
+// ---------------------------------------------------------------- farm maps, for picking one
+
+const MINI = 3; // pixels per tile
+const miniMaps = new Map<MapKind, HTMLCanvasElement>();
+
+/** A little map of a farm: meadow, the lots (the starting ones tilled), water, trees, and the crater. */
+export function farmMiniMap(kind: MapKind): HTMLCanvasElement {
+  const done = miniMaps.get(kind);
+  if (done) return done;
+  const m = FARMS[kind];
+  const c = document.createElement('canvas');
+  c.width = 22 * MINI;
+  c.height = 16 * MINI;
+  const ctx = c.getContext('2d')!;
+  const tile = (x: number, y: number, color: string, w = 1, h = 1) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x * MINI, y * MINI, w * MINI, h * MINI);
+  };
+  tile(0, 0, '#5b9a44', 22, 16);
+  tile(FARM_X0, FARM_Y0, '#6cae4e', LOTS_X * LOT, LOTS_Y * LOT);
+  for (const n of START_LOTS) {
+    const x = FARM_X0 + (n % LOTS_X) * LOT;
+    const y = FARM_Y0 + Math.floor(n / LOTS_X) * LOT;
+    tile(x, y, '#7a5234', LOT, LOT);
+    for (let r = 0; r < LOT * MINI; r += 2) {
+      ctx.fillStyle = '#5e3c20';
+      ctx.fillRect(x * MINI, y * MINI + r, LOT * MINI, 1);
+    }
+  }
+  for (const [x, y] of m.water) tile(x, y, '#3a80bb');
+  for (const [x, y] of m.bridges) tile(x, y, '#9a6a3c');
+  for (const o of m.scenery) {
+    const cx = o.x * MINI;
+    const cy = o.y * MINI;
+    switch (o.kind) {
+      case 'crater':
+        tile(o.x, o.y, '#5e4128', o.w, o.h);
+        ctx.fillStyle = '#9dff6b';
+        ctx.fillRect(cx + 2, cy + 2, o.w * MINI - 4, o.h * MINI - 4);
+        break;
+      case 'pond':
+        tile(o.x, o.y, '#3a80bb', o.w, o.h);
+        break;
+      case 'tree_oak':
+      case 'tree_apple':
+      case 'bush':
+        ctx.fillStyle = o.kind === 'bush' ? '#3f7d32' : '#2c6326';
+        ctx.fillRect(cx, cy, MINI, MINI);
+        if (o.kind === 'tree_apple') {
+          ctx.fillStyle = '#d23b2e';
+          ctx.fillRect(cx + 1, cy + 1, 1, 1);
+        }
+        break;
+      case 'haybale':
+        tile(o.x, o.y, '#d8b64a');
+        break;
+      case 'stump':
+        tile(o.x, o.y, '#7a5234');
+        break;
+      case 'rocks':
+        ctx.fillStyle = '#9a9aa4';
+        ctx.fillRect(cx + 1, cy + 1, 2, 1);
+        break;
+      case 'flowers':
+        ctx.fillStyle = '#f29bb0';
+        ctx.fillRect(cx + 1, cy + 1, 1, 1);
+        break;
+    }
+  }
+  miniMaps.set(kind, c);
+  return c;
 }

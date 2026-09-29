@@ -1,4 +1,4 @@
-// Fixed map layout: grid helpers, the grid of lots you can buy, and static scenery.
+// The map: grid helpers, the grid of lots you can buy, and the farms (scenery, the crater, rivers).
 import { COLS, FARM_X0, FARM_Y0, LOT, LOTS_X, LOTS_Y, ROWS } from './config';
 import type { Burrow } from './types';
 import { type Rng, shuffle } from './rng';
@@ -68,37 +68,154 @@ export interface Scenery {
 
 const s = (kind: SceneryKind, x: number, y: number, w = 1, h = 1, block = true): Scenery => ({ kind, x, y, w, h, block });
 
-// The wild country around the lots (columns 3-18, rows 2-13): nothing grows in the lots but what you plant,
-// and row 1 / row 14 stay mostly open as lanes for bunnies coming in from the top and bottom edges.
-export const SCENERY: Scenery[] = [
-  s('crater', 19, 11, 2, 2),
-  s('pond', 1, 11, 2, 2),
-  s('tree_oak', 1, 2),
-  s('tree_apple', 20, 2),
-  s('tree_apple', 1, 7),
-  s('tree_oak', 20, 7),
-  s('tree_oak', 7, 14),
-  s('tree_apple', 14, 1),
-  s('haybale', 5, 1),
-  s('haybale', 6, 1),
-  s('bush', 2, 5),
-  s('bush', 19, 5),
-  s('bush', 4, 14),
-  s('bush', 16, 14),
-  s('stump', 11, 1),
-  s('stump', 19, 9),
-  s('rocks', 1, 4, 1, 1, false),
-  s('rocks', 20, 14, 1, 1, false),
-  s('rocks', 12, 14, 1, 1, false),
-  s('flowers', 2, 9, 1, 1, false),
-  s('flowers', 9, 1, 1, 1, false),
-  s('flowers', 17, 1, 1, 1, false),
-  s('flowers', 10, 14, 1, 1, false),
-  s('flowers', 1, 14, 1, 1, false),
-];
+// ---------------------------------------------------------------- farms
 
-export const CRATER = SCENERY.find((o) => o.kind === 'crater')!;
-export const CRATER_SPAWN = { x: 19, y: 13 };
+export type MapKind = 'home' | 'river' | 'orchard';
+export const MAP_ORDER: MapKind[] = ['home', 'river', 'orchard'];
+
+/** A farm to play on. The lots are always columns 3-18, rows 2-13; the wild country around them is what changes. */
+export interface FarmMap {
+  kind: MapKind;
+  name: string;
+  blurb: string;
+  scenery: Scenery[];
+  spawn: { x: number; y: number }; // where the crater's own bunnies climb out
+  water: [number, number][]; // river tiles: nothing crosses them...
+  bridges: [number, number][]; // ...except here
+}
+
+const run = (x0: number, y0: number, x1: number, y1: number): [number, number][] => {
+  const out: [number, number][] = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push([x, y]);
+  return out;
+};
+
+export const FARMS: Record<MapKind, FarmMap> = {
+  // Row 1 and row 14 stay mostly open as lanes for bunnies coming in from the top and bottom edges.
+  home: {
+    kind: 'home', name: 'Home Farm', blurb: 'The farm you know: open meadow on every side, a pond, and the crater to the east.',
+    spawn: { x: 19, y: 13 }, water: [], bridges: [],
+    scenery: [
+      s('crater', 19, 11, 2, 2),
+      s('pond', 1, 11, 2, 2),
+      s('tree_oak', 1, 2),
+      s('tree_apple', 20, 2),
+      s('tree_apple', 1, 7),
+      s('tree_oak', 20, 7),
+      s('tree_oak', 7, 14),
+      s('tree_apple', 14, 1),
+      s('haybale', 5, 1),
+      s('haybale', 6, 1),
+      s('bush', 2, 5),
+      s('bush', 19, 5),
+      s('bush', 4, 14),
+      s('bush', 16, 14),
+      s('stump', 11, 1),
+      s('stump', 19, 9),
+      s('rocks', 1, 4, 1, 1, false),
+      s('rocks', 20, 14, 1, 1, false),
+      s('rocks', 12, 14, 1, 1, false),
+      s('flowers', 2, 9, 1, 1, false),
+      s('flowers', 9, 1, 1, 1, false),
+      s('flowers', 17, 1, 1, 1, false),
+      s('flowers', 10, 14, 1, 1, false),
+      s('flowers', 1, 14, 1, 1, false),
+    ],
+  },
+  // A river down the west side that bends along the south. Bunnies from across it have to find a bridge.
+  river: {
+    kind: 'river', name: 'River Bend',
+    blurb: 'A river wraps the west and south sides. Bunnies from across the water have to come over the four bridges.',
+    spawn: { x: 19, y: 4 },
+    water: [...run(1, 0, 1, 14), ...run(2, 14, 21, 14)],
+    bridges: [[1, 4], [1, 10], [7, 14], [14, 14]],
+    scenery: [
+      s('crater', 19, 2, 2, 2),
+      s('tree_oak', 20, 7),
+      s('tree_apple', 20, 11),
+      s('tree_oak', 5, 1),
+      s('tree_apple', 13, 1),
+      s('haybale', 9, 0),
+      s('haybale', 10, 0),
+      s('bush', 2, 7),
+      s('bush', 20, 5),
+      s('stump', 17, 1),
+      s('rocks', 0, 12, 1, 1, false),
+      s('rocks', 11, 15, 1, 1, false),
+      s('flowers', 0, 2, 1, 1, false),
+      s('flowers', 4, 15, 1, 1, false),
+      s('flowers', 18, 15, 1, 1, false),
+      s('flowers', 11, 1, 1, 1, false),
+    ],
+  },
+  // Rows of old fruit trees crowd the edges; the bunnies come down the lanes between them.
+  orchard: {
+    kind: 'orchard', name: 'Old Orchard',
+    blurb: 'Rows of old fruit trees crowd every edge, so bunnies come down the lanes between them. The crater is in the southwest.',
+    spawn: { x: 1, y: 14 }, water: [], bridges: [],
+    scenery: [
+      s('crater', 1, 12, 2, 2),
+      s('pond', 19, 1, 2, 2),
+      s('tree_apple', 1, 2),
+      s('tree_oak', 1, 6),
+      s('tree_apple', 1, 9),
+      s('tree_apple', 20, 5),
+      s('tree_oak', 20, 9),
+      s('tree_apple', 20, 13),
+      s('tree_apple', 4, 1),
+      s('tree_oak', 9, 1),
+      s('tree_apple', 14, 1),
+      s('tree_oak', 6, 14),
+      s('tree_apple', 11, 14),
+      s('tree_oak', 16, 14),
+      s('haybale', 18, 14),
+      s('stump', 13, 14),
+      s('bush', 2, 4),
+      s('bush', 19, 11),
+      s('rocks', 0, 8, 1, 1, false),
+      s('rocks', 21, 3, 1, 1, false),
+      s('flowers', 7, 1, 1, 1, false),
+      s('flowers', 12, 1, 1, 1, false),
+      s('flowers', 9, 14, 1, 1, false),
+      s('flowers', 2, 10, 1, 1, false),
+    ],
+  },
+};
+
+// The farm in play. These are filled in by setMap(), in place, so everything that imported them sees the change.
+export const SCENERY: Scenery[] = [];
+export const CRATER: Scenery = { kind: 'crater', x: 0, y: 0, w: 2, h: 2, block: true };
+export const CRATER_SPAWN = { x: 0, y: 0 };
+/** 1 where scenery or water blocks movement entirely. */
+export const OBSTACLE = new Uint8Array(N);
+/** 1 on river tiles, 2 on bridges. */
+export const WATER = new Uint8Array(N);
+let current: MapKind | null = null;
+
+/** Lay out a farm. Cheap to call again with the same farm; returns true if the farm changed. */
+export function setMap(kind: MapKind): boolean {
+  if (current === kind) return false;
+  current = kind;
+  const m = FARMS[kind];
+  SCENERY.length = 0;
+  SCENERY.push(...m.scenery);
+  Object.assign(CRATER, m.scenery.find((o) => o.kind === 'crater')!);
+  Object.assign(CRATER_SPAWN, m.spawn);
+  WATER.fill(0);
+  for (const [x, y] of m.water) WATER[idx(x, y)] = 1;
+  for (const [x, y] of m.bridges) WATER[idx(x, y)] = 2;
+  OBSTACLE.fill(0);
+  for (const sc of SCENERY) {
+    if (!sc.block) continue;
+    for (let yy = sc.y; yy < sc.y + sc.h; yy++) for (let xx = sc.x; xx < sc.x + sc.w; xx++) OBSTACLE[idx(xx, yy)] = 1;
+  }
+  for (let i = 0; i < N; i++) if (WATER[i] === 1) OBSTACLE[i] = 1;
+  return true;
+}
+
+export const currentMap = (): MapKind => current ?? 'home';
+
+setMap('home');
 
 /** On or right next to the crater: where a smoke bomb can land. */
 export function inCrater(i: number): boolean {
@@ -106,16 +223,6 @@ export function inCrater(i: number): boolean {
   const y = tileY(i);
   return x >= CRATER.x - 1 && x <= CRATER.x + CRATER.w && y >= CRATER.y - 1 && y <= CRATER.y + CRATER.h;
 }
-
-/** 1 where scenery blocks movement entirely. */
-export const OBSTACLE: Uint8Array = (() => {
-  const o = new Uint8Array(N);
-  for (const sc of SCENERY) {
-    if (!sc.block) continue;
-    for (let yy = sc.y; yy < sc.y + sc.h; yy++) for (let xx = sc.x; xx < sc.x + sc.w; xx++) o[idx(xx, yy)] = 1;
-  }
-  return o;
-})();
 
 export function isBorder(x: number, y: number): boolean {
   return x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1;
@@ -133,11 +240,11 @@ export function pickBurrows(rng: Rng, count: number): Burrow[] {
         for (let dx = -1; dx <= 1; dx++) {
           const nx = x + dx;
           const ny = y + dy;
-          if (inMap(nx, ny) && OBSTACLE[idx(nx, ny)]) { near = true; break; }
+          if (inMap(nx, ny) && OBSTACLE[idx(nx, ny)] && !WATER[idx(nx, ny)]) { near = true; break; }
         }
       }
       const corner = (x < 2 || x > COLS - 3) && (y < 2 || y > ROWS - 3);
-      if (!near && !corner) candidates.push({ x, y });
+      if (!near && !corner && !OBSTACLE[idx(x, y)]) candidates.push({ x, y });
     }
   }
   shuffle(rng, candidates);
