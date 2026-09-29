@@ -10,7 +10,7 @@ import { CLASSIC_RELOAD, CLASSIC_SECONDS } from '../classic';
 import type { Game } from '../game';
 import { hashSeed } from '../rng';
 import type { Bunny, Dog, GameEvent, ShopItem, Structure } from '../types';
-import { CRATER, currentMap, idx, inCrater, inMap, lotOfTile, lotRect, SCENERY, type Scenery, tileX, tileY, WATER } from '../world';
+import { CRATER, currentMap, idx, inCrater, inMap, lotOfTile, lotRect, SCENERY, type Scenery, tileAt, tileX, tileY, WATER } from '../world';
 import { BUNNY_COLORS } from './palette';
 import { dottedCircle, Particles, pixelDisc, pixelLine } from './particles';
 import { drawText, OUTLINE, PixelGrid, textWidth } from './pixels';
@@ -35,6 +35,70 @@ interface Drawable {
 
 const T = TILE;
 const SMOKE = ['#7c7c86', '#8e8e98', '#a4a4ae', '#b8b8c2']; // smoke-bomb smoke, darkest to lightest
+
+/** Crumbs a nibbling bunny sends flying, by crop. */
+const CRUMBS: Record<string, string[]> = {
+  radish: ['#d2334a', '#f0e6e8', '#5fb04a'], lettuce: ['#7ac74f', '#b8e88a'], carrot: ['#f28b2a', '#ffb45a', '#5fb04a'],
+  sunflower: ['#f2c23a', '#7a4f2e'], corn: ['#f2d04a', '#fff08a', '#7ac74f'], tomato: ['#e0402c', '#ff7a5a', '#5fb04a'],
+  strawberry: ['#e03050', '#ff8a9a', '#5fb04a'], pumpkin: ['#e8802a', '#ffb060'], watermelon: ['#e0404a', '#4aa03a', '#1a1423'],
+  golden: ['#ffd84a', '#fff6c8', '#ffffff'],
+};
+
+/** Take `bites` round bites out of a sprite's edge, and outline where the bites were. */
+function biteOut(src: Img, bites: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = src.height;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(src, 0, 0);
+  const w = c.width;
+  const h = c.height;
+  const im = ctx.getImageData(0, 0, w, h);
+  const d = im.data;
+  let x0 = w;
+  let y0 = h;
+  let x1 = 0;
+  let y1 = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (d[(y * w + x) * 4 + 3] === 0) continue;
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+    }
+  }
+  if (x1 <= x0) return c;
+  const r = Math.max(3, Math.round((x1 - x0) * 0.22));
+  const spots = [[x1 + 1, y0 + (y1 - y0) * 0.3], [x0 - 1, y0 + (y1 - y0) * 0.55]].slice(0, bites);
+  const gone = new Uint8Array(w * h);
+  for (const [cx, cy] of spots) {
+    for (let y = Math.floor(cy - r); y <= cy + r; y++) {
+      for (let x = Math.floor(cx - r); x <= cx + r; x++) {
+        if (x < 0 || y < 0 || x >= w || y >= h || Math.hypot(x - cx, y - cy) > r) continue;
+        const o = (y * w + x) * 4;
+        if (d[o + 3] === 0) continue;
+        d[o + 3] = 0;
+        gone[y * w + x] = 1;
+      }
+    }
+  }
+  // a dark edge along each bite, like the sprite's own outline
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      if (d[o + 3] === 0) continue;
+      const by = (dx: number, dy: number) => x + dx >= 0 && y + dy >= 0 && x + dx < w && y + dy < h && gone[(y + dy) * w + x + dx];
+      if (by(1, 0) || by(-1, 0) || by(0, 1) || by(0, -1)) {
+        d[o] = 0x1a;
+        d[o + 1] = 0x14;
+        d[o + 2] = 0x23;
+      }
+    }
+  }
+  ctx.putImageData(im, 0, 0);
+  return c;
+}
 /** Deterministic noise in [0,1). hashSeed alone leaves streaks down the columns, so mix it well. */
 function rand(a: number, b: number, n: number): number {
   let h = hashSeed(a, b, n);
@@ -100,6 +164,8 @@ export class Renderer {
   private soilTiles: HTMLCanvasElement[] = [];
   private comboAt = new Map<string, number>(); // when a combo last popped at a spot
   private celebrateAt = -1; // when the victory began (renderer clock), or -1
+  private lastGame: Game | null = null;
+  private bites = new Map<Img, Img[]>(); // crop sprites with bites out of them
   private capLanded = true;
   private season: Season = 'spring';
   private weatherFx: { x: number; y: number; v: number; s: number; p: number }[] = [];
@@ -261,9 +327,13 @@ export class Renderer {
           fx.burst(x, y - 8, 5, ['#ffffff'], 80, { grav: 0, life: 0.2, size: 2 });
           fx.text(x, y - 30, 'CHOMP', '#ffffff', 0.6);
           break;
-        case 'chomp':
-          fx.burst(x + (Math.random() - 0.5) * 12, y - 4, 3, ['#5fb04a', '#a9e06a'], 60, { life: 0.4, size: 2 });
+        case 'chomp': {
+          // crumbs the color of whatever's being eaten
+          const crop = this.lastGame?.tiles[tileAt(e.x, e.y + 0.3)]?.crop ?? this.lastGame?.tiles[tileAt(e.x, e.y)]?.crop;
+          const colors = crop ? CRUMBS[crop.kind] : ['#5fb04a', '#a9e06a'];
+          fx.burst(x + (Math.random() - 0.5) * 12, y - 4, 5, colors, 70, { grav: 140, life: 0.45, size: 2 });
           break;
+        }
         case 'chew':
           fx.burst(x, y - 6, 3, ['#d9a066', '#8a5530'], 60, { life: 0.4, size: 2 });
           break;
@@ -354,6 +424,7 @@ export class Renderer {
 
   render(g: Game, view: View, dt: number): void {
     this.clock += dt;
+    this.lastGame = g;
     this.fx.update(dt);
     const ctx = this.ctx;
     const title = g.phase === 'title';
@@ -726,10 +797,12 @@ export class Renderer {
       if (t.crop) {
         const c = t.crop;
         const stage = g.cropStage(c);
-        const img = stage === 0 ? sp.seed : stage === 1 ? sp.sprout : stage === 2 ? sp.crops[c.kind].young : sp.crops[c.kind].ripe;
+        const whole = stage === 0 ? sp.seed : stage === 1 ? sp.sprout : stage === 2 ? sp.crops[c.kind].young : sp.crops[c.kind].ripe;
         const shake = c.shake > 0 ? Math.round(Math.sin(this.clock * 60)) : 0;
-        const hurt = c.hp < CROPS[c.kind].hp * 0.5;
-        this.put(list, img, cx + shake, by - 2, { sort: by - 3, alpha: hurt ? 0.85 : 1 });
+        // eaten down: a bite out of it, then two
+        const left = c.hp / CROPS[c.kind].hp;
+        const img = stage >= 2 && left <= 0.67 ? this.bitten(whole, left <= 0.34 ? 2 : 1) : whole;
+        this.put(list, img, cx + shake, by - 2, { sort: by - 3 });
         if (stage === 3 && Math.sin(this.clock * 2.5 + i * 1.7) > 0.985) {
           this.fx.add({ kind: 'sparkle', x: cx + (rand(i, 1, 51) - 0.5) * 18, y: by - 14 - rand(i, 2, 51) * 10, life: 0.5, color: '#ffffff' });
         }
@@ -879,6 +952,31 @@ export class Renderer {
       frame = Math.sin(this.clock * 1.7 + b.id * 3) > 0.93 ? 1 : 0;
     }
     const img = flash ? art.flash[frame] : art.frames[frame];
+    const running = b.moving && (b.state === 'flee' || b.state === 'exit' || b.state === 'spooked');
+    if (running && b.fed && !def.boss && !def.golden) {
+      // full: a heavier hop, and a waddle from side to side
+      lift = Math.round(lift * 0.6);
+      px += Math.floor(this.clock * 6 + b.id) % 2 ? 1 : -1;
+      if (Math.random() < 0.004) this.fx.puff(px + 4 * b.facing, py - img.height + 6, 3, '#ffffff', 0.5);
+    } else if (running && !def.golden) {
+      // scared: motion lines streaming off behind it
+      const back = -b.facing;
+      const t = Math.floor(this.clock * 12 + b.id);
+      list.push({
+        y: py + 0.4,
+        draw: () => {
+          this.ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          for (let k = 0; k < 3; k++) {
+            const len = 4 + ((t + k) % 3) * 2;
+            const x0 = Math.round(px + back * (img.width / 2 + 2 + ((t + k * 2) % 4)));
+            this.ctx.fillRect(back > 0 ? x0 : x0 - len, Math.round(py - 6 - k * 5 - lift), len, 1);
+          }
+        },
+      });
+      if (b.state === 'spooked' && Math.random() < 0.02) {
+        this.fx.add({ x: px - 3 * back, y: py - img.height - lift, vx: back * 20, vy: -30, grav: 120, color: '#8fd3ff', life: 0.5, size: 2 });
+      }
+    }
     const shadowW = (img.width / 2.6) * (1 - lift / 30);
     shadows.push([px, py - 1, Math.max(4, shadowW)]);
     if (def.boss) {
@@ -1144,6 +1242,16 @@ export class Renderer {
     else tip(Math.round(Math.max(x + 8, Math.min(x + w - 9, cx))), y + h - 1, 0, 1);
     ctx.drawImage(icon, x + 3, y + 3);
     drawText(ctx, label, x + 3 + icon.width + 3, y + 8, '#000000', null);
+  }
+
+  /** A crop sprite with one or two bites out of its edge, the bites outlined like the rest of it. */
+  private bitten(src: Img, bites: number): Img {
+    let set = this.bites.get(src);
+    if (!set) {
+      set = [src, biteOut(src, 1), biteOut(src, 2)];
+      this.bites.set(src, set);
+    }
+    return set[bites];
   }
 
   /** Today's event, over the field: a dry cast for a drought, and hail when it comes. */
