@@ -4,6 +4,7 @@ import { Classic, type ClassicEvent } from './classic';
 import { Music, type Song } from './music';
 import { cropPlural, DAILY, type Mode, TILE, unlockName, WEAPON_ORDER, WEAPONS, WORLD_H, WORLD_W } from './config';
 import { dailyFor, FARMS, type MapKind } from './world';
+import { ACHIEVEMENTS, type Noticed, satisfied } from './achievements';
 import { Game } from './game';
 import { Renderer, type View } from './render/renderer';
 import { loadSprites } from './render/sprites';
@@ -36,6 +37,31 @@ let paused = false;
 let speed = 1; // the player's pick: 1, 2, or 4
 let skipping = false; // "skip to sundown" runs the rest of the day at 8x
 let victoryWait = 0; // seconds of fireworks before the victory dialog
+// achievements and the bunny guide: what's been noticed, and a batch of sightings and bonks to save
+const noticed: Noticed = {};
+let achieveCheck = 0; // seconds until the next look for new achievements (< 0: nothing to look at)
+const guideSeen = new Set<string>();
+const guideBonked = new Map<string, number>();
+
+/** Any new achievements? Pop them up and keep them. */
+function checkAchievements(evening = false): void {
+  achieveCheck = -1;
+  if (game.phase === 'title') return;
+  for (const id of store.earnAchievements(satisfied(game, noticed, evening))) {
+    const a = ACHIEVEMENTS.find((x) => x.id === id);
+    if (a) {
+      ui.award(a);
+      sfx.play('jingle');
+    }
+  }
+}
+
+/** Save the guide's sightings and bonks now and then, rather than on every poof. */
+function flushGuide(): void {
+  store.recordGuide(guideSeen, guideBonked);
+  guideSeen.clear();
+  guideBonked.clear();
+}
 let victoryRank = -1;
 let classic: Classic | null = null;
 let classicResultsShown = false;
@@ -198,6 +224,11 @@ const hooks: UiHooks = {
     hooks.toTitle();
   },
   classicBest: store.loadClassicBest,
+  achievements: store.loadAchievements,
+  guide: () => {
+    flushGuide();
+    return store.loadGuide();
+  },
   keepFarming() {
     ui.closeModal();
     if (!game.keepFarming()) return;
@@ -228,6 +259,8 @@ function onPhase(from: Phase, to: Phase): void {
   if (to === 'summary') {
     store.recordBest(game.stats.harvest, game.round);
     ui.showSummary();
+    checkAchievements(true);
+    flushGuide();
   }
   if (to === 'gameover' && game.daily) {
     // a Daily Farm: ten days (or bust), a score, and today's best; your own farm and high scores are untouched
@@ -238,6 +271,8 @@ function onPhase(from: Phase, to: Phase): void {
     };
     const fresh = store.recordDaily(game.daily, result);
     ui.showDailyResults(result, fresh);
+    noticed.dailyDone = game.round >= DAILY.days;
+    checkAchievements();
     return;
   }
   if (to === 'gameover' || to === 'victory') {
@@ -253,6 +288,8 @@ function onPhase(from: Phase, to: Phase): void {
       hard: game.mode === 'hard', endless: !won && sealedOn !== undefined ? game.round - 1 : undefined,
     });
     if (won) store.openHardMode();
+    checkAchievements();
+    flushGuide();
     if (won) {
       // the cap goes on and the fireworks go up, then the dialog
       game.celebrate();
@@ -411,7 +448,10 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-window.addEventListener('beforeunload', persist);
+window.addEventListener('beforeunload', () => {
+  persist();
+  flushGuide();
+});
 
 // Don't let the bunnies feast while you're in another window.
 function autoPause(): void {
@@ -479,6 +519,7 @@ function frame(now: number): void {
     requestAnimationFrame(frame);
     return;
   }
+  if (achieveCheck >= 0 && (achieveCheck -= dt) < 0) checkAchievements();
   if (victoryWait > 0) {
     const before = victoryWait;
     victoryWait -= dt;
@@ -510,6 +551,12 @@ function frame(now: number): void {
   }
   const events = game.events.splice(0);
   for (const e of events) {
+    if (e.t === 'spawn') guideSeen.add(e.kind);
+    if (e.t === 'poof') guideBonked.set(e.kind, (guideBonked.get(e.kind) ?? 0) + 1);
+    if (e.t === 'combo') noticed.combo = true;
+    if ((e.t === 'poof' || e.t === 'combo' || e.t === 'upgrade' || e.t === 'buy' || e.t === 'buyLand' || e.t === 'prize') && achieveCheck < 0) {
+      achieveCheck = 0.5;
+    }
     if (e.t === 'error') ui.toast(e.msg);
     if (e.t === 'smoke') {
       ui.select(null); // one a day
@@ -545,6 +592,10 @@ function frameClassic(c: Classic, dt: number, running: boolean): void {
     classicResultsShown = true;
     const record = store.recordClassicBest(c.score);
     ui.showClassicResults(c, record);
+    noticed.classic = c.score;
+    for (const id of store.earnAchievements(satisfied(game, noticed, false).filter((x) => x === 'classic_1000'))) {
+      ui.award(ACHIEVEMENTS.find((a) => a.id === id)!);
+    }
   }
 }
 

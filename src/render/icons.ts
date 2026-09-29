@@ -459,3 +459,28 @@ export function merchantCart(): Img {
   }).outlined().canvas();
   return cart;
 }
+
+// ---------------------------------------------------------------- achievements
+
+const TROPHY = [
+  '..yyyyyyyy..',
+  'yyYYYYYYyyyy',
+  'y.yYYYYYyy.y',
+  'y.yYYYYYyy.y',
+  '.yyYYYYyyyy.',
+  '...yYYYyy...',
+  '....yYyy....',
+  '.....yy.....',
+  '.....yy.....',
+  '...bbbbbb...',
+  '..bnnnnnnb..',
+  '..bbbbbbbb..',
+];
+
+let trophy: Img | null = null;
+
+/** A little gold cup. */
+export function trophyIcon(): Img {
+  trophy ??= PixelGrid.fromRows(TROPHY, { y: '#e0a82e', Y: '#ffe26a', b: '#6e4626', n: '#a8743e' }).outlined().scaled(2).canvas();
+  return trophy;
+}

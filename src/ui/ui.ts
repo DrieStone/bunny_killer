@@ -6,11 +6,12 @@ import {
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
 } from '../config';
 import type { Game } from '../game';
-import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, merchantCart, repairIcon, spriteImg, weaponIcon } from '../render/icons';
+import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, merchantCart, repairIcon, spriteImg, trophyIcon, weaponIcon } from '../render/icons';
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
-import type { DailyResult, ScoreEntry } from '../save';
+import type { DailyResult, Guide, ScoreEntry } from '../save';
+import { ACHIEVEMENTS, type Achievement } from '../achievements';
 import type { ShopItem } from '../types';
 import type { DefenseKind } from '../config';
 import { FARMS, idx, inCrater, lotOfTile, MAP_ORDER, type MapKind, tileX, tileY } from '../world';
@@ -48,6 +49,8 @@ export interface UiHooks {
   replayTutorial(): void;
   keepFarming(): void;
   newDaily(): void;
+  achievements(): Record<string, string>;
+  guide(): Guide;
   daily(): { key: string; number: number; map: MapKind; best: DailyResult | null; resumable: boolean };
 }
 
@@ -154,6 +157,8 @@ export class UI {
   private toastTimer = 0;
   private modal: string | null = null;
   private onModalKey: ((key: string) => boolean) | null = null;
+  private awards: Achievement[] = []; // waiting to pop up
+  private awardTimer = 0;
   private clearShown = false; // the all-clear box is up
   private clearDismissed = false; // "Keep Watching": not again today
 
@@ -224,6 +229,8 @@ export class UI {
       case 'tutorial': this.hooks.replayTutorial(); break;
       case 'autoskip': this.hooks.setAutoSkip(!this.hooks.autoSkip()); break;
       case 'daily': this.showDailyIntro(this.modal === 'title' ? () => this.showTitle() : undefined); break;
+      case 'guide': this.showGuide(this.modal === 'title' ? () => this.showTitle() : undefined); break;
+      case 'achievements': this.showAchievements(this.modal === 'title' ? () => this.showTitle() : undefined); break;
     }
   }
 
@@ -607,6 +614,7 @@ export class UI {
       this.toastTimer -= dt;
       if (this.toastTimer <= 0) $('toast').classList.remove('show');
     }
+    if (this.awardTimer > 0 && (this.awardTimer -= dt) <= 0) this.nextAward();
   }
 
   private updateClassic(c: Classic): void {
@@ -1124,6 +1132,7 @@ export class UI {
           ${save ? `<button class="btn" data-act="new">New Game</button>${hard}<button class="btn default" data-act="continue">Continue</button>`
             : `${hard}<button class="btn default" data-act="new">New Game</button>`}
         </div>
+        <div class="links"><a data-act="achievements">Achievements</a> · <a data-act="guide">Bunny Guide</a></div>
         ${best ? `<div class="best">Best farm: Day ${best.round} · ${best.score}¢ harvested</div>` : ''}
         <div class="credit">Bunny Killer II (1993) · Bunny Killer 3 (1994) · Modified Environments</div>
       </div>`, {
@@ -1133,6 +1142,8 @@ export class UI {
       new: () => this.chooseFarm('normal', () => this.showTitle()),
       hard: () => this.showHardIntro(() => this.showTitle()),
       daily: () => this.showDailyIntro(() => this.showTitle()),
+      achievements: () => this.showAchievements(() => this.showTitle()),
+      guide: () => this.showGuide(() => this.showTitle()),
       continue: () => this.hooks.continueGame(),
     }, { Enter: save ? 'continue' : 'new' });
     $('logo-host').appendChild(makeLogo());
@@ -1404,6 +1415,52 @@ export class UI {
       <table class="offers">${rows || '<tr><td>The cart is empty.</td></tr>'}</table>
       <p class="hint">You have ${money(g.credits)}.</p>
       <div class="buttons"><button class="btn default" data-act="ok">Done</button></div>`, actions, { Enter: 'ok', Escape: 'ok' });
+  }
+
+  /** An achievement, popped up in the corner of the farm (one at a time). */
+  award(a: Achievement): void {
+    this.awards.push(a);
+    if (this.awardTimer <= 0) this.nextAward();
+  }
+
+  private nextAward(): void {
+    const a = this.awards.shift();
+    const el = $('award');
+    if (!a) {
+      el.classList.remove('show');
+      return;
+    }
+    el.innerHTML = `<img src="${dataURL(trophyIcon())}" alt=""><div><small>Achievement</small><b>${a.name}</b><span>${a.text}</span></div>`;
+    el.classList.add('show');
+    this.awardTimer = 3.4;
+  }
+
+  showAchievements(back?: () => void): void {
+    const have = this.hooks.achievements();
+    const n = ACHIEVEMENTS.filter((a) => have[a.id]).length;
+    const cells = ACHIEVEMENTS.map((a) => `<div class="trophy${have[a.id] ? ' got' : ''}"><img src="${dataURL(trophyIcon())}" alt="">` +
+      `<div><b>${a.name}</b><span>${a.text}</span>${have[a.id] ? `<i>${have[a.id]}</i>` : ''}</div></div>`).join('');
+    this.open('achievements', `<h1>Achievements</h1><p>${n} of ${ACHIEVEMENTS.length}. They count across every farm you play.</p>` +
+      `<div class="trophies">${cells}</div><div class="buttons"><button class="btn default" data-act="ok">OK</button></div>`,
+    { ok: back ?? (() => this.dismiss()) }, { Enter: 'ok', Escape: 'ok' });
+  }
+
+  /** Every kind of bunny: what it does, and how many you've bonked (on every farm). Ones you haven't met are shadows. */
+  showGuide(back?: () => void): void {
+    const guide = this.hooks.guide();
+    const cells = BUNNY_ORDER.map((k) => {
+      const d = BUNNIES[k];
+      const met = guide.seen.includes(k) || (guide.bonked[k] ?? 0) > 0;
+      const art = spriteImg(sprites().bunnies[k].frames[0], k === 'mutant' ? 0.75 : k === 'queen' || k === 'fat' ? 1 : 1.5);
+      return `<div class="bunny${met ? '' : ' unmet'}"><div class="pic">${art}</div><div>` +
+        (met ? `<b>${d.name}</b><span class="stat">Toughness ${d.hp} · Speed ${d.speed}</span><span>${d.blurb}</span>` +
+          `<i>Bonked: ${(guide.bonked[k] ?? 0).toLocaleString('en-US')}</i>`
+          : '<b>???</b><span>Not seen yet. Keep farming.</span>') + '</div></div>';
+    }).join('');
+    const met = BUNNY_ORDER.filter((k) => guide.seen.includes(k) || (guide.bonked[k] ?? 0) > 0).length;
+    this.open('guide', `<h1>Bunny Guide</h1><p>${met} of ${BUNNY_ORDER.length} met. Bonks count across every farm.</p>` +
+      `<div class="guide">${cells}</div><div class="buttons"><button class="btn default" data-act="ok">OK</button></div>`,
+    { ok: back ?? (() => this.dismiss()) }, { Enter: 'ok', Escape: 'ok' });
   }
 
   /** Today's Daily Farm: what it is, and your best so far today. */

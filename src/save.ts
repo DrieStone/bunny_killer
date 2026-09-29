@@ -101,6 +101,42 @@ export function addScore(entry: ScoreEntry): number {
   return top.indexOf(entry);
 }
 
+// ---------------------------------------------------------------- achievements and the bunny guide (across all farms)
+
+const ACHIEVE_KEY = 'bk4.achievements';
+const GUIDE_KEY = 'bk4.guide';
+
+/** Earned achievements: id → the date it was earned. */
+export const loadAchievements = (): Record<string, string> => read<Record<string, string>>(ACHIEVE_KEY) ?? {};
+
+/** Mark some achievements earned; returns the ones that are new. */
+export function earnAchievements(ids: string[]): string[] {
+  const have = loadAchievements();
+  const fresh = ids.filter((id) => !have[id]);
+  if (!fresh.length) return [];
+  const today = new Date().toISOString().slice(0, 10);
+  for (const id of fresh) have[id] = today;
+  write(ACHIEVE_KEY, have);
+  return fresh;
+}
+
+/** The bunny guide: which kinds you've met, and how many of each you've bonked, on every farm. */
+export interface Guide {
+  seen: string[];
+  bonked: Record<string, number>;
+}
+
+export const loadGuide = (): Guide => ({ seen: [], bonked: {}, ...read<Guide>(GUIDE_KEY) });
+
+/** Fold a batch of sightings and bonks into the guide. */
+export function recordGuide(seen: Set<string>, bonked: Map<string, number>): void {
+  if (!seen.size && !bonked.size) return;
+  const g = loadGuide();
+  for (const k of seen) if (!g.seen.includes(k)) g.seen.push(k);
+  for (const [k, n] of bonked) g.bonked[k] = (g.bonked[k] ?? 0) + n;
+  write(GUIDE_KEY, g);
+}
+
 // ---------------------------------------------------------------- the Daily Farm: its own save slot, and today's best
 
 export function loadDailySave(key: string): SaveData | null {
