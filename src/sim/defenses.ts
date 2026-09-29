@@ -19,7 +19,7 @@ export function updateDefenses(g: Game, dt: number): void {
     switch (s.kind) {
       case 'trap': {
         const victim = g.bunnies.find(
-          (b) => !b.dead && g.isSurfaced(b) && b.state !== 'exit' && Math.hypot(b.x - cx, b.y - cy) <= def.radius,
+          (b) => !b.dead && !prize(b) && g.isSurfaced(b) && b.state !== 'exit' && Math.hypot(b.x - cx, b.y - cy) <= def.radius,
         );
         if (victim) {
           g.damageBunny(victim, def.damage, 'trap');
@@ -48,7 +48,7 @@ export function updateDefenses(g: Game, dt: number): void {
         let soaked = 0;
         const floods = s.level >= PERKS.sprinkler!.level;
         for (const b of g.bunnies) {
-          if (b.dead || BUNNIES[b.kind].boss || b.state === 'exit') continue;
+          if (b.dead || BUNNIES[b.kind].boss || prize(b) || b.state === 'exit') continue;
           if (Math.hypot(b.x - cx, b.y - cy) > def.radius) continue;
           if (!g.isSurfaced(b)) {
             // a flooded tunnel sends a Burrower scrambling up
@@ -123,8 +123,11 @@ export function updateDefenses(g: Game, dt: number): void {
   }
 }
 
+/** A golden bunny is the player's to catch: no defense touches it. */
+const prize = (b: Bunny) => !!BUNNIES[b.kind].golden;
+
 function scareable(g: Game, b: Bunny, bossToo: boolean): boolean {
-  if (b.dead || !g.isSurfaced(b) || (BUNNIES[b.kind].boss && !bossToo)) return false;
+  if (b.dead || prize(b) || !g.isSurfaced(b) || (BUNNIES[b.kind].boss && !bossToo)) return false;
   return b.state === 'seek' || b.state === 'eat' || (b.state === 'chew' && b.resume === 'seek');
 }
 
@@ -132,7 +135,7 @@ function nearest(g: Game, x: number, y: number, r: number, not: Bunny | null = n
   let best: Bunny | null = null;
   let bestD = r;
   for (const b of g.bunnies) {
-    if (b.dead || b === not || !g.isSurfaced(b)) continue;
+    if (b.dead || b === not || prize(b) || !g.isSurfaced(b)) continue;
     const d = Math.hypot(b.x - x, b.y - y);
     if (d <= bestD) {
       bestD = d;

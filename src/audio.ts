@@ -151,6 +151,17 @@ export class Sfx {
         this.tone(1319 * k, 0.14, 'square', 0.09, undefined, 0.06);
         break;
       }
+      case 'jingle':
+        // a quick run up the scale: something shiny just showed up
+        if (this.ready(name, 0.3)) [1047, 1319, 1568, 2093].forEach((f, n) => this.tone(f, 0.07, 'square', 0.07, undefined, n * 0.05));
+        break;
+      case 'fanfare':
+        if (this.ready(name, 0.3)) {
+          [784, 1047, 1319, 1568].forEach((f, n) => this.tone(f, 0.09, 'square', 0.09, undefined, n * 0.08));
+          this.tone(2093, 0.35, 'triangle', 0.12, undefined, 0.34);
+          this.tone(1568, 0.35, 'square', 0.05, undefined, 0.34);
+        }
+        break;
       case 'place':
         if (this.ready(name, 0.03)) {
           this.tone(300, 0.05, 'triangle', 0.2, 200);
@@ -290,6 +301,8 @@ export class Sfx {
         case 'dodge': this.play('whoosh'); break;
         case 'brood': this.play('squeak'); break;
         case 'project': this.play('rumble'); break;
+        case 'golden': this.play('jingle'); break;
+        case 'prize': this.play('fanfare'); break;
         case 'smoke': this.play('boom'); this.play('rumble'); break;
         case 'sundown': this.play('dusk'); break;
         default: break;

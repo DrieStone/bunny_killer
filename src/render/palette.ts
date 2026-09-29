@@ -14,4 +14,5 @@ export const BUNNY_COLORS: Record<BunnyKind, { fur: string; light: string; dark:
   ninja: { fur: '#3a3d4c', light: '#e8403a', dark: '#1d1f28' },
   queen: { fur: '#c2a8ee', light: '#f1e8ff', dark: '#ffce3a' },
   mutant: { fur: '#4fd13a', light: '#b8ff8a', dark: '#1f6e1c' },
+  golden: { fur: '#f2c23a', light: '#fff1a8', dark: '#b07c1c' },
 };

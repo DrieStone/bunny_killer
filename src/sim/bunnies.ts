@@ -184,6 +184,24 @@ function updateBunny(g: Game, b: Bunny, dt: number): void {
       }
       break;
     }
+    case 'dash': {
+      // a golden bunny: straight across, zig-zagging, over everything, and it never stops to eat
+      b.timer += dt;
+      const dx = b.sx - b.x;
+      const dy = b.sy - b.y;
+      const d = Math.hypot(dx, dy);
+      const step = def.speed * dt;
+      if (d <= step) {
+        b.gone = true;
+        break;
+      }
+      const wiggle = Math.cos(b.timer * 9) * 1.8 * dt;
+      b.x += (dx / d) * step - (dy / d) * wiggle;
+      b.y += (dy / d) * step + (dx / d) * wiggle;
+      b.moving = true;
+      if (Math.abs(dx) > 0.1) b.facing = dx > 0 ? 1 : -1;
+      break;
+    }
     case 'wander': {
       b.timer -= dt;
       if (b.timer <= 0) {

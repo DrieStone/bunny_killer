@@ -105,6 +105,11 @@ export async function loadSprites(): Promise<SpriteSet> {
   const scenery: Record<string, Img> = {};
   for (const [n, c] of Object.entries(byName)) if (n.startsWith('sc_')) scenery[n.slice(3)] = c;
   const dogStand = get('dog_stand');
+  // Classic Mode's jackpot bunny, and the golden bunny that dashes across the farm
+  const goldenBunny: BunnyArt = (() => {
+    const frames = cycle('bunny_common').map((f) => gild(f));
+    return { frames, flash: frames.map((f) => silhouette(f)), eat: [6, 7] as [number, number], squash: false };
+  })();
   loaded = {
     bunnies: {
       common: hopper('bunny_common'),
@@ -119,11 +124,9 @@ export async function loadSprites(): Promise<SpriteSet> {
       ninja: hopper('bunny_ninja'),
       queen: still('bunny_queen'),
       mutant: still('bunny_boss'),
+      golden: goldenBunny,
     },
-    golden: (() => {
-      const frames = cycle('bunny_common').map((f) => gild(f));
-      return { frames, flash: frames.map((f) => silhouette(f)), eat: [6, 7] as [number, number], squash: false };
-    })(),
+    golden: goldenBunny,
     mound: get('digger_mound'),
     dog: { stand: dogStand, run: cycle('dog'), flash: silhouette(dogStand) },
     crops: {

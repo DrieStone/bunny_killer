@@ -270,7 +270,8 @@ export const PEBBLE_SPEED = 12;
 // ---------------------------------------------------------------- bunnies
 
 export type BunnyKind =
-  | 'common' | 'speedy' | 'digger' | 'kit' | 'fat' | 'pothead' | 'leaper' | 'bandit' | 'snowhare' | 'ninja' | 'queen' | 'mutant';
+  | 'common' | 'speedy' | 'digger' | 'kit' | 'fat' | 'pothead' | 'leaper' | 'bandit' | 'snowhare' | 'ninja' | 'queen' | 'mutant'
+  | 'golden';
 
 export interface BunnyDef {
   kind: BunnyKind;
@@ -292,6 +293,7 @@ export interface BunnyDef {
   leaps?: boolean; // jumps over fences and other defenses instead of chewing
   thief?: boolean; // carries off a whole crop instead of nibbling
   winter?: boolean; // only comes out in winter; snow doesn't slow it
+  golden?: boolean; // a prize: dashes across the farm, and only your own shots can catch it
   blurb: string;
 }
 
@@ -351,10 +353,21 @@ export const BUNNIES: Record<BunnyKind, BunnyDef> = {
     kind: 'mutant', name: 'Asteroid Buck', hp: 24, speed: 1.0, appetite: 40, biteRate: 2.4, chewRate: 6.0,
     digger: false, boss: true, size: 13, aim: 0.6, firstRound: 7, blurb: 'Something came out of that crater. It eats and eats, and the crops it eats are gone for good.',
   },
+  golden: {
+    kind: 'golden', name: 'Golden Bunny', hp: 1, speed: 4.2, appetite: 0, biteRate: 0, chewRate: 0, digger: false, boss: false,
+    size: 7, aim: 0.3, firstRound: 3, golden: true,
+    blurb: "Streaks across the farm now and then. Your defenses can't touch it; bonk it yourself for a prize.",
+  },
 };
 
+/**
+ * Most days from Day 3, a golden bunny dashes across the farm. Only your own weapons can catch it, and it pays:
+ * cash (base plus so much a day), a free star on a defense, or a free Seed Lab level.
+ */
+export const GOLDEN = { from: 3, chance: 0.6, cash: 60, cashPerDay: 14 };
+
 export const BUNNY_ORDER: BunnyKind[] = [
-  'common', 'speedy', 'digger', 'kit', 'fat', 'pothead', 'leaper', 'bandit', 'snowhare', 'ninja', 'queen', 'mutant',
+  'common', 'speedy', 'digger', 'kit', 'fat', 'pothead', 'leaper', 'bandit', 'snowhare', 'ninja', 'queen', 'mutant', 'golden',
 ];
 
 /** Burrowers poke their heads up to sniff the air every few seconds while they tunnel. */

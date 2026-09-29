@@ -276,6 +276,16 @@ export class Renderer {
           fx.text(x, y - 26, `+${e.amount}¢`, '#ffe24a', 1.4);
           fx.burst(x, y - 12, 7, ['#ffe24a', '#ffffff'], 80, { grav: 0, life: 0.4, size: 2 });
           break;
+        case 'golden':
+          for (let n = 0; n < 12; n++) {
+            this.fx.add({ kind: 'sparkle', x: x + (Math.random() - 0.5) * T * 2, y: y + (Math.random() - 0.5) * T, life: 0.6, color: '#fff1a8' });
+          }
+          break;
+        case 'prize':
+          fx.ring(x, y - 8, 40, '#ffe24a', 0.7);
+          fx.burst(x, y - 10, 36, ['#ffe24a', '#fff1a8', '#ffffff', '#f2c23a'], 170, { grav: 50, life: 1, size: 2 });
+          fx.text(x, y - 40, e.short, '#ffe24a', 1.8);
+          break;
         case 'upgrade':
           fx.ring(x, y, 26, '#ffe24a', 0.5);
           fx.burst(x, y - 10, 16, ['#ffe24a', '#ffffff', '#f7c948'], 110, { grav: 60, life: 0.7, size: 2 });
@@ -788,6 +798,10 @@ export class Renderer {
 
   private collectBunny(g: Game, b: Bunny, list: Drawable[], shadows: [number, number, number][]): void {
     const def = BUNNIES[b.kind];
+    if (def.golden && Math.random() < 0.5) {
+      // a trail of glitter behind the golden bunny
+      this.fx.add({ kind: 'sparkle', x: b.x * T + (Math.random() - 0.5) * 12, y: b.y * T - 4 + (Math.random() - 0.5) * 10, life: 0.45, color: '#fff1a8' });
+    }
     // a Pot-Head whose pot got knocked off is just a bunny
     const art = b.kind === 'pothead' && b.armor <= 0 ? sprites().bunnies.common : sprites().bunnies[b.kind];
     let px = b.x * T;

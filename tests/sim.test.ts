@@ -135,7 +135,8 @@ describe('a day on the farm', () => {
       botPlan(g);
       playDay(g, 0.55, 0.75);
       const rs = g.roundStats;
-      expect(rs.kills + rs.escapedFed + rs.escapedHungry).toBe(g.waveTotal());
+      // every bunny in the wave was bonked or got away (a golden bunny caught is a bonk on top)
+      expect(rs.kills - (rs.prize ? 1 : 0) + rs.escapedFed + rs.escapedHungry).toBe(g.waveTotal());
       g.continueAfterSummary();
     }
     expect(g.round).toBeGreaterThan(3);

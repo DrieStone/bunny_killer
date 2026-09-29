@@ -2,8 +2,8 @@
 import {
   ANGER, BOSS_BOUNTY, BOSS_EVERY, BOSS_HP_PER_APPEARANCE, BREED_CAP, BUNNIES, type BunnyKind, bunnyHpScale, burrowCount,
   CAP_RETRY, COLS, CROPS, CROP_ORDER, type CropKind, DEFENSES, type DefenseKind, defenseStats, FARM, FARM_ORDER,
-  type FarmUpgrade, type Goal, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_VALUE, hybridCost, investedIn,
-  LOT_COUNT, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, SMOKE_BOMB, POP_SECONDS, PROJECT, REPAIR_RATE, ROUND_SECONDS, type Season, seasonOf, SEASONS,
+  type FarmUpgrade, type Goal, GOLDEN, goalText, HARVEST_SECONDS, HOSE_PUSH, HYBRID_GROWTH, HYBRID_LEVELS, HYBRID_VALUE, hybridCost, investedIn,
+  LOT_COUNT, lotPrice, MARKET, MAX_LEVEL, type Mode, MODES, SMOKE_BOMB, POP_SECONDS, PROJECT, REPAIR_RATE, ROUND_SECONDS, ROWS, type Season, seasonOf, SEASONS,
   SELL_BACK, SOIL_GROWTH, SPAWN_WINDOW, SPRINKLER_GROWTH, STALL_PRICE, START_CREDITS, START_LOTS, SUNDOWN_MAX_SECONDS,
   TILL_COST, type Unlock, UNLOCK_RULE, unlockName, UNLOCKS, upgradeCost, waveSize, waveWeights, WEAPON_LEVELS,
   WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, type Weather, WEATHER, WEATHER_ODDS, WELL_GROWTH,
@@ -129,6 +129,7 @@ function emptyRoundStats(): RoundStats {
   return {
     harvested: {}, harvestTotal: 0, spent: 0, kills: 0, bounty: 0,
     escapedFed: 0, escapedHungry: 0, cropsLost: 0, structuresBroken: 0, bucks: 0, bucksEscaped: 0, cropsStolen: 0, market: {},
+    prize: '', prizeCash: 0,
   };
 }
 
@@ -167,6 +168,7 @@ export class Game {
   capDiscount = false; // the cap cracked once, so putting it back on costs less
   lastNight = false; // today is The Last Night
   smoked = false; // a smoke bomb went into the crater this morning: a Buck comes out today
+  goldenAt = -1; // when today's golden bunny makes its dash (seconds into the day), or -1
   nightResult: NightResult = null;
   unlocked = new Set<Unlock>();
   newUnlocks: Unlock[] = []; // what opened up in the store this morning
@@ -276,6 +278,10 @@ export class Game {
     this.burrows = pickBurrows(this.rng, burrowCount(this.round));
     this.wave = this.buildWave();
     this.spawnIdx = 0;
+    // its own dice, so the rest of the day plays out the same with or without it
+    const gold = makeRng(hashSeed(this.seed, this.round, 777));
+    this.goldenAt = !this.lastNight && this.round >= GOLDEN.from && gold() < GOLDEN.chance
+      ? 6 + gold() * (ROUND_SECONDS * SPAWN_WINDOW - 12) : -1;
     this.costDirty = true;
     if (newDay && this.round > 1) this.moveMarket();
     const fresh = this.refreshUnlocks();
@@ -460,6 +466,10 @@ export class Game {
       while (this.spawnIdx < this.wave.length && this.wave[this.spawnIdx].at <= this.time) {
         this.spawn(this.wave[this.spawnIdx++]);
       }
+      if (this.goldenAt >= 0 && this.time >= this.goldenAt) {
+        this.goldenAt = -1;
+        this.spawnGolden();
+      }
       this.growCrops(dt);
       if (this.time >= ROUND_SECONDS) {
         this.phase = 'sundown';
@@ -564,6 +574,68 @@ export class Game {
       const r = n > 1 ? 0.28 : 0;
       this.spawnAt(e.kind, home.x + Math.cos(a) * r, home.y + Math.sin(a) * r);
     }
+  }
+
+  /** Today's golden bunny: in from one edge, zig-zagging straight across, and out the other side. */
+  private spawnGolden(): void {
+    const r = makeRng(hashSeed(this.seed, this.round, 778));
+    const flip = r() < 0.5;
+    let from: [number, number];
+    let to: [number, number];
+    if (r() < 0.6) {
+      from = [flip ? COLS + 0.6 : -0.6, 3 + r() * (ROWS - 6)];
+      to = [flip ? -0.8 : COLS + 0.8, 3 + r() * (ROWS - 6)];
+    } else {
+      from = [3 + r() * (COLS - 6), flip ? ROWS + 0.6 : -0.6];
+      to = [3 + r() * (COLS - 6), flip ? -0.8 : ROWS + 0.8];
+    }
+    const b = this.spawnAt('golden', from[0], from[1]);
+    b.state = 'dash';
+    b.sx = to[0];
+    b.sy = to[1];
+    b.timer = 0;
+    b.facing = to[0] >= from[0] ? 1 : -1;
+    this.emit({ t: 'golden', x: from[0], y: from[1] });
+  }
+
+  /** Caught one: cash, a free star on a defense, or a free Seed Lab level. */
+  private awardPrize(b: Bunny): void {
+    this.stats.golden = (this.stats.golden ?? 0) + 1;
+    const r = makeRng(hashSeed(this.seed, this.round, 779));
+    const roll = r();
+    let text = '';
+    let short = '';
+    if (roll < 0.25) {
+      const open = this.tiles.map((t, i) => [t.structure, i] as const)
+        .filter(([s]) => s && s.level < MAX_LEVEL && this.isUnlocked(`upgrade${s.level + 1}` as Unlock));
+      if (open.length) {
+        const [s, i] = open[Math.floor(r() * open.length)];
+        const before = defenseStats(s!.kind, s!.level).hp;
+        s!.level++;
+        s!.hp += defenseStats(s!.kind, s!.level).hp - before;
+        this.costDirty = true;
+        this.emit({ t: 'upgrade', x: tileX(i) + 0.5, y: tileY(i) + 0.5, level: s!.level });
+        text = `A free star for your ${DEFENSES[s!.kind].name}: now level ${s!.level}!`;
+        short = 'FREE UPGRADE!';
+      }
+    } else if (roll < 0.5 && this.isUnlocked('lab')) {
+      const open = CROP_ORDER.filter((k) => this.isUnlocked(k) && this.hybrid[k] < HYBRID_LEVELS);
+      if (open.length) {
+        const k = open[Math.floor(r() * open.length)];
+        this.hybrid[k]++;
+        text = `The Seed Lab bred a better ${CROPS[k].name.toLowerCase()}: level ${this.hybrid[k]}, free!`;
+        short = 'SEED LAB +1!';
+      }
+    }
+    if (!text) {
+      const cash = GOLDEN.cash + GOLDEN.cashPerDay * this.round;
+      this.credits += cash;
+      this.roundStats.prizeCash += cash;
+      text = `A pouch of coins: +${cash}¢!`;
+      short = `+${cash}¢`;
+    }
+    this.roundStats.prize = text;
+    this.emit({ t: 'prize', x: b.x, y: b.y, text, short });
   }
 
   /** Put a bunny on the field at (x, y), tile units. */
@@ -1305,6 +1377,8 @@ export class Game {
 
   damageBunny(b: Bunny, dmg: number, source: DamageSource = 'pebble'): void {
     if (b.dead || b.gone) return;
+    // a golden bunny is yours to catch: traps, dogs, bees and sparks can't
+    if (BUNNIES[b.kind].golden && source !== 'pebble' && source !== 'splash' && source !== 'hose') return;
     if (source === 'pebble' && b.armor > 0) {
       // clang: the pot takes it
       b.armor--;
@@ -1335,6 +1409,7 @@ export class Game {
     this.stats.kills++;
     this.roundStats.kills++;
     this.emit({ t: 'poof', x: b.x, y: b.y, kind: b.kind });
+    if (BUNNIES[b.kind].golden) this.awardPrize(b);
     if (BUNNIES[b.kind].boss) {
       this.credits += BOSS_BOUNTY;
       this.roundStats.bounty += BOSS_BOUNTY;

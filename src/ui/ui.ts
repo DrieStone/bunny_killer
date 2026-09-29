@@ -1198,7 +1198,8 @@ export class UI {
     // crops that flooded the market tonight
     const flooded = CROP_ORDER.filter((k) => rs.harvested[k] && (rs.market[k] ?? 1) < SEASONS[g.season].sell * g.market[k] * 0.95);
     if (rs.bounty) rows.push(`<tr><td>Asteroid Buck bounty</td><td class="n">${rs.bounty}¢</td></tr>`);
-    const earned = rs.harvestTotal + rs.bounty;
+    if (rs.prizeCash) rows.push(`<tr><td>Golden bunny</td><td class="n">${rs.prizeCash}¢</td></tr>`);
+    const earned = rs.harvestTotal + rs.bounty + rs.prizeCash;
     const table = rows.length
       ? `<table>${rows.join('')}<tr class="total"><td>Total</td><td class="n">${earned}¢</td></tr></table>`
       : '<p>Nothing was ripe enough to sell today.</p>';
@@ -1207,6 +1208,7 @@ export class UI {
     const chewed = g.chewedCount();
     const lines = [
       `Bonked <b>${rs.kills}</b> ${rs.kills === 1 ? 'bunny' : 'bunnies'}.`,
+      rs.prize && !rs.prizeCash ? `You caught the golden bunny! ${rs.prize}` : '',
       rs.cropsLost ? `<b>${rs.cropsLost}</b> ${rs.cropsLost === 1 ? 'crop was' : 'crops were'} lost${rs.cropsStolen ? `, ${rs.cropsStolen} of them carried off by Bandits` : ''}.` : 'Not a single crop lost!',
       rs.structuresBroken ? `<b>${rs.structuresBroken}</b> ${rs.structuresBroken === 1 ? 'defense was' : 'defenses were'} chewed to bits.` : '',
       chewed ? `<b>${chewed}</b> ${chewed === 1 ? 'defense is' : 'defenses are'} chewed up. <b>Repair All</b> (Defense tab) fixes ` +

@@ -24,7 +24,7 @@ export interface Tile {
   structure: Structure | null;
 }
 
-export type BunnyState = 'seek' | 'eat' | 'chew' | 'spooked' | 'flee' | 'exit' | 'wander';
+export type BunnyState = 'seek' | 'eat' | 'chew' | 'spooked' | 'flee' | 'exit' | 'wander' | 'dash';
 
 export interface Bunny {
   id: number;
@@ -141,6 +141,8 @@ export interface RoundStats {
   bucksEscaped: number;
   cropsStolen: number;
   market: Partial<Record<CropKind, number>>; // tonight's price, as a share of normal, for what sold
+  prize: string; // what the golden bunny paid out today ('' if nobody caught it)
+  prizeCash: number;
 }
 
 export interface LifetimeStats {
@@ -149,6 +151,7 @@ export interface LifetimeStats {
   cropsLost: number;
   bossesBeaten: number;
   sealedOn?: number; // the day the crater was sealed: the run is won
+  golden?: number; // golden bunnies bonked
 }
 
 // x/y are tile units unless noted
@@ -191,4 +194,6 @@ export type GameEvent =
   | { t: 'weapon'; weapon: WeaponKind }
   | { t: 'till'; x: number; y: number }
   | { t: 'buyLand'; x: number; y: number }
-  | { t: 'smoke'; x: number; y: number };
+  | { t: 'smoke'; x: number; y: number }
+  | { t: 'golden'; x: number; y: number } // a golden bunny starts its dash
+  | { t: 'prize'; x: number; y: number; text: string; short: string };

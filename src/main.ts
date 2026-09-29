@@ -436,6 +436,8 @@ function frame(now: number): void {
       ui.select(null); // one a day
       ui.banner('Smoked out!', 'An Asteroid Buck is coming today', 2.2);
     }
+    if (e.t === 'golden') ui.banner('A golden bunny!', 'Bonk it before it gets away', 1.6);
+    if (e.t === 'prize') ui.banner('Got it!', e.text, 2.4);
   }
   renderer.handle(events);
   sfx.handle(events);
