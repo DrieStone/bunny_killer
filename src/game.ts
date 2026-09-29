@@ -642,6 +642,12 @@ export class Game {
     return this.climateGrowth * this.cropGrowth(kind) * (this.event?.kind === 'drought' ? EVENTS.drought : 1);
   }
 
+  /** Growth today for a crop on dry ground, or where a sprinkler (or the windmill) waters it. */
+  growthOn(kind: CropKind, watered: boolean): number {
+    if (!watered && !this.landmark('windmill')) return this.growthToday(kind);
+    return (this.farm.well ? WELL_GROWTH : SPRINKLER_GROWTH) * this.climateGrowth * this.cropGrowth(kind);
+  }
+
   /** ...and on a particular tile: a sprinkler's water counts, and keeps any drought off. */
   tileGrowth(i: number, kind: CropKind): number {
     const water = this.sprinklerGrowth(i);

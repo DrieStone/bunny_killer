@@ -13,6 +13,7 @@ import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
 import { VOLUME_MAX } from '../audio';
+import { cropReturns, growMore, todayTips, weatherLines } from '../advice';
 import type { DailyResult, Guide, ScoreEntry } from '../save';
 import { ACHIEVEMENTS, type Achievement } from '../achievements';
 import type { ShopItem } from '../types';
@@ -117,6 +118,24 @@ function statLine(kind: DefenseKind, level: number): string {
 }
 
 const WEATHER_ICON: Record<string, string> = { sunny: '☀︎', rain: '☂︎', fog: '≋', snow: '❄︎' };
+
+/** What the weather does, in a few words. */
+function weatherShort(g: Game): string {
+  switch (g.weather) {
+    case 'sunny': return 'clear skies';
+    case 'rain': return 'crops +30%, bunnies slower';
+    case 'fog': return '20% more bunnies';
+    case 'snow': return g.farm.greenhouse ? 'bunnies slower' : 'crops −15%, bunnies slower';
+  }
+}
+
+/** What the season does, in a few words (spring is the baseline). */
+const SEASON_SHORT: Record<string, string> = {
+  spring: '', summer: 'crops grow 15% faster, and so do the litters', fall: 'everything sells 25% higher',
+  winter: 'crops grow slower and sell 20% higher',
+};
+
+const signed = (v: number) => `${v < 0 ? '−' : '+'}${Math.abs(Math.round(v))}¢`;
 
 /** One line for today's event, for the Scouting Report. */
 function eventLine(g: Game): string {
@@ -255,7 +274,8 @@ export class UI {
       <div id="plan-panel" class="panel">
         <div class="money"><span class="credits" id="credits"></span><span class="day" id="day-label"></span></div>
         <button class="btn crater" id="btn-project"></button>
-        <div class="group scout"><span class="legend">Scouting Report</span><div id="scout"></div></div>
+        <div class="group scout" id="scout-box"><span class="legend">Scouting Report</span>
+          <a class="report-link" id="btn-report">Full report ▸</a><div id="scout"></div></div>
         <div class="tabs" id="store-tabs">${TABS.map(([t, label]) => `<button class="tab" data-tab="${t}">${label}<i></i></button>`).join('')}</div>
         <div class="scroll tabbox">
           <div class="page" data-page="seeds"><div class="order-note" id="order-note" hidden></div>
@@ -394,6 +414,17 @@ export class UI {
       });
     };
     button('btn-project', () => this.fundProject(), 'project');
+    // the Scouting Report: hover for the weather in plain words, click for the full morning report,
+    // or click one of today's best crops to pick up its seed
+    const scout = $('scout-box');
+    scout.addEventListener('click', (e) => {
+      this.hooks.unlockAudio();
+      const crop = (e.target as HTMLElement).closest<HTMLElement>('[data-crop]');
+      if (crop) this.pick({ type: 'crop', kind: crop.dataset.crop as CropKind });
+      else this.showReport();
+    });
+    scout.addEventListener('mouseenter', () => { this.hoverButton = 'scout'; });
+    scout.addEventListener('mouseleave', () => { this.hoverButton = null; });
     $('order-note').addEventListener('mouseenter', () => { this.hoverButton = 'order'; });
     $('order-note').addEventListener('mouseleave', () => { this.hoverButton = null; });
     button('btn-start', () => this.hooks.startDay(), 'start');
@@ -603,6 +634,45 @@ export class UI {
     else this.banner(`${built.name} built!`, `${LEGACY_LINE[built.kind]} Word gets around: more bunnies are coming.`, 3);
   }
 
+  /** The whole morning report: the weather in plain words, today's news, the best crops, and what would help. */
+  showReport(back?: () => void): void {
+    const g = this.game;
+    const returns = cropReturns(g);
+    const watered = g.isUnlocked('sprinkler') && !g.landmark('windmill');
+    const rows = returns.map((r, n) => {
+      const c = CROPS[r.kind];
+      const ripe = r.days === 1 ? 'tonight' : `${r.days} days`;
+      const wet = watered && r.wetDays < r.days ? ` <small>(${r.wetDays === 1 ? 'tonight' : r.wetDays} by a sprinkler)</small>` : '';
+      const notes: string[] = [];
+      if (g.event?.kind === 'fair' && g.event.crop === r.kind) notes.push(`fair: ${EVENTS.fairMult}× for ${g.fairCap}`);
+      if (g.order?.kind === r.kind) notes.push(`order: +${g.order.bonus}¢`);
+      return `<tr${n < 3 ? ' class="top"' : ''}><td>${n < 3 ? '★ ' : ''}<b>${c.name}</b></td><td class="n">${c.seedCost}¢</td>` +
+        `<td class="n">${Math.round(r.price)}¢${c.regrow ? ` ×${c.harvests}` : ''}</td>` +
+        `<td>${ripe}${c.regrow && r.fruits > 1 ? ', 2 a day' : ''}${wet}</td><td class="n"><b>${signed(r.perDay)}</b></td>` +
+        `<td>${APPEAL(c.attract)}${notes.length ? ` · <i>${notes.join(', ')}</i>` : ''}</td></tr>`;
+    }).join('');
+    const counts = g.waveCounts();
+    const many = (name: string) => (name.endsWith('s') ? name : plural(name)); // "Kits" already is
+    const kinds = BUNNY_ORDER.filter((k) => counts[k]).map((k) => `${counts[k]} ${counts[k] === 1 ? BUNNIES[k].name : many(BUNNIES[k].name)}`);
+    const news = [`<b>${g.waveTotal()}</b> bunnies are coming: ${kinds.join(', ')}.`, ...todayTips(g, returns)];
+    const more = growMore(g, returns);
+    this.open('report', `
+      <h1>Morning Report <small>· Day ${g.round} · ${this.calendar()}</small></h1>
+      <div class="report">
+        <div class="wx-row"><span class="wx-big">${WEATHER_ICON[g.weather]}</span>
+          <div>${weatherLines(g).map((l) => `<p>${l}</p>`).join('')}</div></div>
+        <h2>Today</h2>
+        <ul>${news.map((l) => `<li>${l}</li>`).join('')}</ul>
+        <h2>Best crops today</h2>
+        <table class="returns"><tr><th>Crop</th><th>Seed</th><th>Sells</th><th>Ripe</th><th>A tile, a day</th><th>Bunnies</th></tr>${rows}</table>
+        <p class="hint">"A tile, a day" is what one tile earns each day after paying for the seed, at tonight's prices${watered ? ' on dry ground' : ''}.
+          Crops the bunnies love earn it only if they last. ★ marks today's three best on the seed shelf.</p>
+        ${more.length ? `<h2>To grow more</h2><ul>${more.map((l) => `<li>${l}</li>`).join('')}</ul>` : ''}
+      </div>
+      <div class="buttons"><button class="btn default" data-act="ok">OK</button></div>`,
+    { ok: back ?? (() => this.dismiss()) }, { Enter: 'ok', Escape: 'ok' });
+  }
+
   /** The fifth landmark: the Farm Legacy is complete. */
   showLegacyComplete(): void {
     const g = this.game;
@@ -761,14 +831,19 @@ export class UI {
         'Bonk every one before dawn and the crater is sealed for good.</div>' : '';
     const w = WEATHER[g.weather];
     const season = SEASONS[g.season];
-    const firstOfSeason = (g.round - 1) % 7 === 0 && g.round > 1;
-    // today's event takes the weather's line (the weather's own blurb can wait)
-    const forecast = `<div class="forecast"><span class="wx">${WEATHER_ICON[g.weather]}</span> <b>${w.name}.</b> ` +
-      `${g.event ? eventLine(g) : g.weather === 'sunny' ? '' : w.blurb}` +
-      `${firstOfSeason || g.round === 1 ? ` <i>${season.name}: ${season.blurb}</i>` : ''}</div>`;
+    // the weather and the season, what they do in a few words, then today's event on a line of its own
+    // the weather and what it does, then today's event (or else the season's), in one paragraph
+    const forecast = `<div class="forecast"><span class="wx">${WEATHER_ICON[g.weather]}</span> <b>${w.name}${g.weather === 'sunny' ? '.' : ':'}</b> ` +
+      `${g.weather === 'sunny' ? '' : `${weatherShort(g)}. `}` +
+      (g.event ? eventLine(g) : SEASON_SHORT[g.season] ? `<i>${season.name}: ${SEASON_SHORT[g.season]}.</i>` : '') + '</div>';
     const where = fromCrater > 0 ? `${g.burrows.length} burrows and the crater` : `${g.burrows.length} burrows`;
-    this.set('scout', `${night}${forecast}<b>${total}</b> bunnies from ${where}.` +
-      `${breed}${boss}<div class="kinds">${kinds}</div>${newcomers}`);
+    this.set('scout', `${night}${forecast}<b>${total}</b> bunnies from ${where}.${breed}${boss}<div class="kinds">${kinds}</div>${newcomers}`);
+    // today's three best-paying crops get a star on the shelf
+    const best = cropReturns(g).slice(0, 3).map((r) => r.kind);
+    for (const k of CROP_ORDER) {
+      const cell = this.itemEls.get(`crop:${k}`);
+      if (cell && cell.classList.contains('best') !== best.includes(k)) cell.classList.toggle('best');
+    }
     // the County Fair's crop, picked out on the shelf
     const fair = g.event?.kind === 'fair' ? g.event.crop : undefined;
     for (const k of CROP_ORDER) {
@@ -940,8 +1015,11 @@ export class UI {
         hint = days > 1 ? `${faster(c.growTime / (ROUND_SECONDS * (days - 1)))} and it ripens in ${days - 1 === 1 ? 'a day' : `${days - 1} days`}.`
           : 'Ripe within the day, so faster won\'t help.';
       }
+      const ranked = lock ? [] : cropReturns(g);
+      const rank = ranked.findIndex((r) => r.kind === item.kind);
+      const earns = rank < 0 ? '' : ` · Earns ${signed(ranked[rank].perDay)} a tile a day${rank < 3 ? ' ★' : ''}`;
       return `<div class="title">${c.name} — ${c.seedCost}¢</div>${locked}` +
-        `<div class="meta">${grows} · Sells ${Math.round(g.cropPrice(item.kind))}¢ tonight` +
+        `<div class="meta">${grows} · Sells ${Math.round(g.cropPrice(item.kind))}¢ tonight${earns}` +
         `${pct === 100 ? '' : ` (${pct}%)`} · Toughness ${c.hp} · Bunnies: ${APPEAL(c.attract)}</div>` +
         `<p>${c.blurb}</p>${this.marketNote(item.kind)}${lock ? '' : `<p class="hint">${hint}</p>`}`;
     }
@@ -1019,6 +1097,12 @@ export class UI {
         }
         return `<div class="title">The Crater Project</div><p>Seal the crater to win. Each stage angers it; the last starts The Last Night.</p>` +
           `<ol class="steps">${steps}</ol>${note ? `<p class="hint">${note}</p>` : ''}`;
+      }
+      case 'scout': {
+        // the weather and the season in plain words (the event has its own line in the report)
+        const [weather, season] = weatherLines(g);
+        return `<div class="title">${WEATHER_ICON[g.weather]} Today on the farm</div><p>${weather}<br>${season}</p>` +
+          '<p class="hint">Click for the full report.</p>';
       }
       case 'order': {
         const o = g.order;
@@ -1302,7 +1386,7 @@ export class UI {
             <li>Buy seeds and click your tilled soil to plant them.</li>
             <li>Buy defenses. They go anywhere on your land, grass or soil.</li>
             <li>Buy more land a lot at a time (Farm tab, <span class="kbd">L</span>). It comes as grass: till it with the hoe (<span class="kbd">H</span>) before you plant.</li>
-            <li>Check the <b>Scouting Report</b>, and the burrows around the edge of the field. Each one's tag says how many bunnies will come out of it.</li>
+            <li>Check the <b>Scouting Report</b> (click it for the full report: the weather in plain words and the best crops today), and the burrows around the edge of the field. Each one's tag says how many bunnies will come out of it.</li>
           </ul>
           <h2>Day: defend</h2>
           <ul>

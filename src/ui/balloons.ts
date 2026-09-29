@@ -194,7 +194,7 @@ export class Tutorial {
         break;
       case 5:
         show(document.querySelector<HTMLElement>('.scout'),
-          'The <b>Scouting Report</b> shows how many bunnies are coming, what kinds, and the weather.');
+          'The <b>Scouting Report</b> shows how many bunnies are coming, what kinds, and the weather. Click it for the full report: which crops pay best today.');
         break;
       case 6:
         show(inStore('#def-items .item[data-key="defense:trap"]', 'defense'),

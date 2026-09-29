@@ -253,6 +253,27 @@ body.mono #menubar, body.mono #side, body.mono #modal-layer, body.mono #farm-win
 
 .scout { font-size: 11px; }
 .scout .forecast { margin-bottom: 2px; }
+/* the Scouting Report stands out: a heavier frame, an inverted tab, and a link to the full morning report */
+.group.scout { border: 2px solid #000; box-shadow: 2px 2px 0 #000; padding: 6px 5px 1px; cursor: pointer; }
+.group.scout:hover { background: #fbfaf4; }
+.group.scout > .legend { top: -9px; background: #000; color: #fff; padding: 0 6px; }
+.scout .report-link { position: absolute; top: -8px; right: 8px; padding: 0 4px; background: #fff; font-size: 10px; font-weight: bold;
+  color: #000; text-decoration: underline; }
+/* today's best-paying seeds, starred on the shelf */
+.item.best::before { content: '★'; position: absolute; top: 1px; left: 2px; font-size: 10px; line-height: 1; color: #b8860b; }
+/* the full morning report */
+.dialog:has(.report) { max-width: 700px; }
+.report .wx-row { display: flex; gap: 12px; align-items: flex-start; }
+.report .wx-big { font-size: 34px; line-height: 1; }
+.report .wx-row p { margin: 2px 0; }
+.report h2 { border-bottom: 1px solid #000; }
+.report ul { margin: 4px 0; padding-left: 18px; }
+.report li { margin: 2px 0; }
+.report table.returns { font-size: 11px; }
+.report table.returns th { text-align: left; border-bottom: 1px solid #000; padding: 1px 4px; }
+.report table.returns tr.top td { background: #f3f7ea; }
+.report table.returns td small { color: #555; }
+.dialog h1 small { font-size: 12px; font-weight: normal; }
 .scout .forecast i { color: #444; }
 .scout .wx { font-size: 13px; }
 #info .lv { color: #b8860b; letter-spacing: -1px; }

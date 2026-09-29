@@ -11,7 +11,15 @@ Classic Mode.
 
 1. **Plan** (no time limit). Buy seeds and plant them. Buy defenses, place them, and upgrade them.
    Expand your land, repair damage (Repair All, in the Defense tab), and upgrade your weapons. The Scouting Report shows the weather,
-   which burrows the bunnies will come from, and how many of each kind are coming.
+   which burrows the bunnies will come from, and how many of each kind are coming. Hover it for what the weather and
+   season do in plain words; click it for the full **Morning Report**:
+   - the weather, the season, and today's event, and how fast crops grow all told (dry and by a sprinkler)
+   - what to do about today: crops that ripen a day sooner (or later), what watering would bring in, the order from
+     town, prices up from nobody selling or down from a glut, a Buck coming, yesterday's escapees' babies
+   - every crop ranked by what one tile earns a day after the seed, at tonight's prices, with how much bunnies want it
+   - up to three upgrades that would help most (Rich Soil, a Seed Lab level, the Well Pump, the Greenhouse)
+
+   The seed shelf stars today's three best-paying crops, and each seed's Almanac entry says what a tile earns.
 2. **Defend** (60 s). Crops grow while bunnies arrive from burrows at the map edge. Each bunny walks to
    the crop it likes best, eats until it's full, and runs home. Your defenses act on their own, and you
    click bunnies to hit them with your sling. A hit makes the bunny vanish in a **poof of fur**. Once

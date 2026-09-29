@@ -81,6 +81,7 @@ npm run typecheck
   - `scripts/golden.mjs`, `events.mjs`, `combos.mjs`: golden bunnies, the day's events (fair, hail, drought, the merchant's cart), and combos
   - `scripts/victory.mjs`: the cap coming down, the fireworks, and Keep Farming
   - `scripts/legacy.mjs`: the Farm Legacy: the store line, landmarks going up, the finale, the noon bell, all three farms
+  - `scripts/report.mjs`: the Scouting Report, its hover, the full Morning Report, and today's best seeds starred on the shelf
   - `scripts/daily.mjs`, `trophies.mjs`: the Daily Farm and its results, achievements, and the Bunny Guide
   - `scripts/touch.mjs`: a morning and a day played with taps, on an iPad and on a phone held sideways
   - `scripts/retro.mjs`: 1993 Mode, and how long its black-and-white pass takes
@@ -111,6 +112,7 @@ src/
   path.ts          grid Dijkstra
   world.ts         the three farms' layouts, the grid of lots, scenery, burrows, the Daily Farm's pick
   achievements.ts  the achievements and what earns them
+  advice.ts        the Morning Report's advice: the weather in plain words, crops ranked by return, tips, upgrades
   classic.ts       Classic Mode rules (the shooting gallery)
   render/          sprite loading, the renderer (ground, lighting, weather), particles, pixel font,
                    icons drawn in code, and mono.ts (1993 Mode's black and white)
