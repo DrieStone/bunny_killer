@@ -89,6 +89,9 @@ b, strong, .bold, h1, h2, .btn, #menubar, .titlebar .title, .legend, .item .name
 #farm-win .content { line-height: 0; }
 #game { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: pointer; touch-action: none;
   -webkit-touch-callout: none; }
+/* 1993 Mode: the farm and the pictures are dithered in code; what little color the windows have goes gray */
+body.mono #menubar, body.mono #side, body.mono #modal-layer, body.mono #farm-win .content > :not(canvas) { filter: grayscale(1); }
+
 /* a phone on its side: no room for the Almanac, so the store gets the whole column */
 @media (max-height: 560px) {
   #info-win { display: none; }

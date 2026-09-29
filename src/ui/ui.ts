@@ -6,7 +6,8 @@ import {
   unlockName, upgradeCost, WEAPON_LEVELS, WEAPON_ORDER, type WeaponKind, WEAPONS, weaponStats, WEATHER, yearOf,
 } from '../config';
 import type { Game } from '../game';
-import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, merchantCart, repairIcon, spriteImg, trophyIcon, weaponIcon } from '../render/icons';
+import { dataURL, farmIcon, farmMiniMap, iconURL, menuBunny, merchantCart, monoIcons, repairIcon, spriteImg, trophyIcon, weaponIcon } from '../render/icons';
+import { monoSprite } from '../render/mono';
 import { PixelGrid } from '../render/pixels';
 import { type Img, sprites } from '../render/sprites';
 import { type Classic, CLASSIC_SECONDS } from '../classic';
@@ -29,6 +30,8 @@ export interface UiHooks {
   skipDay(): void;
   autoSkip(): boolean; // skip by itself whenever it's all clear
   setAutoSkip(on: boolean): void;
+  monochrome(): boolean; // 1993 Mode: black and white
+  setMonochrome(on: boolean): void;
   toggleMute(): void;
   toggleMusic(): void;
   musicMuted(): boolean;
@@ -230,6 +233,7 @@ export class UI {
       case 'tutorial': this.hooks.replayTutorial(); break;
       case 'intro': this.hooks.replayIntro(); break;
       case 'autoskip': this.hooks.setAutoSkip(!this.hooks.autoSkip()); break;
+      case 'mono': this.toggleMonochrome(); break;
       case 'daily': this.showDailyIntro(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'guide': this.showGuide(this.modal === 'title' ? () => this.showTitle() : undefined); break;
       case 'achievements': this.showAchievements(this.modal === 'title' ? () => this.showTitle() : undefined); break;
@@ -1134,7 +1138,8 @@ export class UI {
           ${save ? `<button class="btn" data-act="new">New Game</button>${hard}<button class="btn default" data-act="continue">Continue</button>`
             : `${hard}<button class="btn default" data-act="new">New Game</button>`}
         </div>
-        <div class="links"><a data-act="achievements">Achievements</a> · <a data-act="guide">Bunny Guide</a></div>
+        <div class="links"><a data-act="achievements">Achievements</a> · <a data-act="guide">Bunny Guide</a> ·
+          <a data-act="mono">${this.hooks.monochrome() ? 'Color' : '1993 Mode'}</a></div>
         ${best ? `<div class="best">Best farm: Day ${best.round} · ${best.score}¢ harvested</div>` : ''}
         <div class="credit">Bunny Killer II (1993) · Bunny Killer 3 (1994) · Modified Environments</div>
       </div>`, {
@@ -1146,9 +1151,19 @@ export class UI {
       daily: () => this.showDailyIntro(() => this.showTitle()),
       achievements: () => this.showAchievements(() => this.showTitle()),
       guide: () => this.showGuide(() => this.showTitle()),
+      mono: () => {
+        this.toggleMonochrome();
+        this.showTitle();
+      },
       continue: () => this.hooks.continueGame(),
     }, { Enter: save ? 'continue' : 'new' });
-    $('logo-host').appendChild(makeLogo());
+    const logo = makeLogo();
+    $('logo-host').appendChild(monoIcons() ? monoSprite(logo, false) : logo);
+  }
+
+  /** Game › 1993 Mode: the whole thing in black and white, or back to color. */
+  toggleMonochrome(): void {
+    this.hooks.setMonochrome(!this.hooks.monochrome());
   }
 
   /** Game › New Game…: pick a farm, same difficulty as the one you're on. */

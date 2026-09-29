@@ -20,6 +20,7 @@ export interface Settings {
   muted: boolean;
   musicMuted: boolean;
   autoSkip: boolean; // skip to sundown by itself once the day's bunnies are dealt with
+  mono: boolean; // 1993 Mode: black and white, like a Mac Plus
   lastFarm: MapKind; // the farm picked last time, offered first next time
 }
 
@@ -65,7 +66,7 @@ export function recordBest(score: number, round: number): boolean {
 }
 
 export const loadSettings = (): Settings => ({
-  muted: false, musicMuted: false, autoSkip: false, lastFarm: 'home', ...read<Settings>(SETTINGS_KEY),
+  muted: false, musicMuted: false, autoSkip: false, mono: false, lastFarm: 'home', ...read<Settings>(SETTINGS_KEY),
 });
 export const saveSettings = (s: Settings): void => write(SETTINGS_KEY, s);
 

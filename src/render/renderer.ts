@@ -15,7 +15,12 @@ import { BUNNY_COLORS } from './palette';
 import { dottedCircle, Particles, pixelDisc, pixelLine } from './particles';
 import { drawText, OUTLINE, PixelGrid, textWidth } from './pixels';
 import { menuBunny, merchantCart } from './icons';
-import { type BunnyArt, forSeason, type Img, sprites } from './sprites';
+import { dither, monoGround } from './mono';
+import { type BunnyArt, forSeason, type Img, monoSprites, type SpriteSet, sprites } from './sprites';
+
+let mono = false; // 1993 Mode: black and white
+/** The sprites to draw with: in black and white in 1993 Mode. */
+const sheet = (): SpriteSet => (mono ? monoSprites() : sprites());
 
 let tagIcon: Img | null = null;
 const menuBunnyIcon = (): Img => (tagIcon ??= menuBunny());
@@ -160,11 +165,13 @@ export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private out: CanvasRenderingContext2D;
   zoom = 1;
+  private mono: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; data: ImageData; px: Uint32Array } | null = null;
   private bg: HTMLCanvasElement | null = null;
   private bgKey = '';
   private meadow: HTMLCanvasElement | null = null; // the grass layer, one per season
   private meadowKey = '';
   private soilTiles: HTMLCanvasElement[] = [];
+  private shade: CanvasPattern | null = null; // 1993 Mode's shade for land not yet bought
   private comboAt = new Map<string, number>(); // when a combo last popped at a spot
   private celebrateAt = -1; // when the victory began (renderer clock), or -1
   private introAt = -1; // when the opening began (renderer clock), or -1
@@ -193,12 +200,56 @@ export class Renderer {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.world = document.createElement('canvas');
-    this.world.width = WORLD_W;
-    this.world.height = WORLD_H;
-    this.ctx = this.world.getContext('2d')!;
-    this.ctx.imageSmoothingEnabled = false;
+    this.ctx = this.newWorld(false);
     this.out = canvas.getContext('2d', { alpha: false })!;
     this.setZoom(1);
+  }
+
+  private newWorld(readBack: boolean): CanvasRenderingContext2D {
+    this.world = document.createElement('canvas');
+    this.world.width = WORLD_W;
+    this.world.height = WORLD_H;
+    // a frame that gets read back every time is quicker kept in memory than on the graphics card
+    const ctx = this.world.getContext('2d', { willReadFrequently: readBack })!;
+    ctx.imageSmoothingEnabled = false;
+    return ctx;
+  }
+
+  get monochrome(): boolean {
+    return mono;
+  }
+
+  /** 1993 Mode: the farm is drawn just the same, then dithered to black and white on its way to the page. */
+  setMonochrome(on: boolean): void {
+    if (on === mono) return;
+    mono = on;
+    this.ctx = this.newWorld(on);
+    this.mono = null;
+    this.bg = null; // the ground gets redrawn to suit
+    this.bgKey = '';
+    this.soilTiles = [];
+    if (!on) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = WORLD_W;
+    canvas.height = WORLD_H;
+    const ctx = canvas.getContext('2d')!;
+    const data = ctx.createImageData(WORLD_W, WORLD_H);
+    this.mono = { canvas, ctx, data, px: new Uint32Array(data.data.buffer) };
+  }
+
+  /** The finished frame, in black and white if it's 1993. */
+  private finished(): HTMLCanvasElement {
+    const m = this.mono;
+    if (!m) return this.world;
+    try {
+      dither(this.ctx.getImageData(0, 0, WORLD_W, WORLD_H).data, m.px, WORLD_W, WORLD_H);
+    } catch {
+      // the browser won't hand back pixels (a page opened from disk with loose image files): stay in color
+      this.setMonochrome(false);
+      return this.world;
+    }
+    m.ctx.putImageData(m.data, 0, 0);
+    return m.canvas;
   }
 
   /** Size the page canvas so every art pixel becomes a `zoom` x `zoom` block of device pixels. */
@@ -210,6 +261,7 @@ export class Renderer {
 
   /** Copy the finished frame to the page, blocky. */
   private present(): void {
+    const frame = this.finished();
     this.out.imageSmoothingEnabled = false;
     if (this.shake > 0) {
       // the ground jumps: whole art pixels only
@@ -218,10 +270,10 @@ export class Renderer {
       const dy = Math.round((Math.random() - 0.5) * 6 * this.shake) * z;
       this.out.fillStyle = '#000';
       this.out.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      this.out.drawImage(this.world, dx, dy, this.canvas.width, this.canvas.height);
+      this.out.drawImage(frame, dx, dy, this.canvas.width, this.canvas.height);
       return;
     }
-    this.out.drawImage(this.world, 0, 0, this.canvas.width, this.canvas.height);
+    this.out.drawImage(frame, 0, 0, this.canvas.width, this.canvas.height);
   }
 
   // ------------------------------------------------------------ the opening: the night the asteroid came down
@@ -663,6 +715,7 @@ export class Renderer {
         }
       }
     }
+    if (mono) monoGround(c);
     this.bg = c;
     this.bgKey = key;
   }
@@ -789,6 +842,13 @@ export class Renderer {
       const row = y % 8;
       for (let x = 0; x < T; x++) {
         const n = rand(x + variant * 97, y, 31);
+        if (mono) {
+          // plowed rows in black and white: a wide lit ridge, shading down into the furrow's line
+          const dark = row < 4 ? false : row === 4 ? (x + y) % 4 === 0 : row === 6 || (x + y) % 2 === 0;
+          ctx.fillStyle = (n < 0.02 ? false : n > 0.98 ? true : dark) ? '#000000' : '#ffffff';
+          ctx.fillRect(x, y, 1, 1);
+          continue;
+        }
         let col = row === 0 ? SOIL.hi : row < 4 ? SOIL.body : row < 6 ? SOIL.mid : SOIL.furrow;
         if (n < 0.02) col = SOIL.clod;
         else if (n > 0.98) col = SOIL.deep;
@@ -797,6 +857,19 @@ export class Renderer {
       }
     }
     return c;
+  }
+
+  /** A quarter of the pixels black, in a diagonal lattice. */
+  private dots(): CanvasPattern {
+    const c = document.createElement('canvas');
+    c.width = 4;
+    c.height = 4;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 4, 4);
+    ctx.fillStyle = '#000000';
+    for (const [x, y] of [[0, 0], [2, 0], [1, 2], [3, 2]]) ctx.fillRect(x, y, 1, 1);
+    return this.ctx.createPattern(c, 'repeat')!;
   }
 
   private tuft(ctx: CanvasRenderingContext2D, x: number, y: number, n: number): void {
@@ -887,7 +960,7 @@ export class Renderer {
   }
 
   private collectScenery(list: Drawable[], shadows: [number, number, number][]): void {
-    const sc = sprites().scenery;
+    const sc = sheet().scenery;
     for (const o of SCENERY) {
       let img = sc[o.kind];
       if (!img) continue;
@@ -904,7 +977,7 @@ export class Renderer {
   }
 
   private collectTiles(g: Game, list: Drawable[], shadows: [number, number, number][]): void {
-    const sp = sprites();
+    const sp = sheet();
     for (let i = 0; i < g.tiles.length; i++) {
       const t = g.tiles[i];
       const cx = tileX(i) * T + T / 2;
@@ -930,7 +1003,7 @@ export class Renderer {
   private collectStructure(
     g: Game, i: number, s: Structure, cx: number, by: number, list: Drawable[], shadows: [number, number, number][],
   ): void {
-    const d = sprites().defenses;
+    const d = sheet().defenses;
     const shake = s.shake > 0 ? Math.round(Math.sin(this.clock * 70)) : 0;
     const x = cx + shake;
     switch (s.kind) {
@@ -940,7 +1013,7 @@ export class Renderer {
         const f = (dx: number, dy: number) =>
           inMap(tx + dx, ty + dy) && g.tiles[idx(tx + dx, ty + dy)].structure?.kind === 'fence';
         const mask = (f(0, -1) ? 1 : 0) | (f(1, 0) ? 2 : 0) | (f(0, 1) ? 4 : 0) | (f(-1, 0) ? 8 : 0);
-        const img = sprites().fence[mask];
+        const img = sheet().fence[mask];
         shadows.push([cx + 3, by - 6, 8]);
         list.push({ y: by - 4, draw: () => this.ctx.drawImage(img, tx * T + shake, ty * T - 12) });
         return;
@@ -969,7 +1042,7 @@ export class Renderer {
         // turns while the sun is up, whirls right after it soaks a bunny
         shadows.push([cx + 1, by - 5, 10]);
         const live = g.phase === 'round' || g.phase === 'sundown';
-        const spin = sprites().sprinklerSpin;
+        const spin = sheet().sprinklerSpin;
         const f = live ? Math.floor(this.clock * (s.anim < 0.6 ? 18 : 6) + i) % spin.length : 0;
         this.put(list, spin[f], x, by - 2);
         if (live && Math.random() < 0.2) {
@@ -1029,7 +1102,7 @@ export class Renderer {
       this.fx.add({ kind: 'sparkle', x: b.x * T + (Math.random() - 0.5) * 12, y: b.y * T - 4 + (Math.random() - 0.5) * 10, life: 0.45, color: '#fff1a8' });
     }
     // a Pot-Head whose pot got knocked off is just a bunny
-    const art = b.kind === 'pothead' && b.armor <= 0 ? sprites().bunnies.common : sprites().bunnies[b.kind];
+    const art = b.kind === 'pothead' && b.armor <= 0 ? sheet().bunnies.common : sheet().bunnies[b.kind];
     let px = b.x * T;
     let py = b.y * T + 7;
     if (b.state === 'eat') {
@@ -1039,7 +1112,7 @@ export class Renderer {
     if (!g.isSurfaced(b)) {
       const wob = b.moving ? Math.round(Math.sin(this.clock * 22 + b.id)) : 0;
       shadows.push([px, py - 2, 9]);
-      this.put(list, sprites().mound, px + wob, py);
+      this.put(list, sheet().mound, px + wob, py);
       if (b.moving && Math.random() < 0.3) {
         this.fx.add({ x: px, y: py - 4, vx: (Math.random() - 0.5) * 60, vy: -40, grav: 160, color: '#a0703f', life: 0.35, size: 2 });
       }
@@ -1051,7 +1124,7 @@ export class Renderer {
     let lift = 0;
     if (def.digger && b.popped > 0 && b.state !== 'eat') {
       // up out of its tunnel: standing in its own little hole, looking around
-      this.put(list, sprites().mound, px, py + 3, { sort: py - 1 });
+      this.put(list, sheet().mound, px, py + 3, { sort: py - 1 });
       frame = Math.floor(this.clock * 3 + b.id) % 2;
     } else if (b.state === 'eat' || b.state === 'chew') {
       frame = Math.floor(this.clock * 4 + b.id) % 2 === 0 ? art.eat[0] : art.eat[1];
@@ -1102,7 +1175,7 @@ export class Renderer {
     this.put(list, img, px, py, { flip, lift, sort });
     if (b.carry) {
       // a Bandit runs with its loot held up over its head
-      const loot = sprites().crops[b.carry.crop.kind].ripe;
+      const loot = sheet().crops[b.carry.crop.kind].ripe;
       const bob = Math.round(Math.sin(this.clock * 12 + b.id));
       this.put(list, loot, px, py - img.height + 10 - lift + bob, { sort: sort + 0.1 });
     }
@@ -1136,7 +1209,7 @@ export class Renderer {
   }
 
   private collectDog(d: Dog, list: Drawable[], shadows: [number, number, number][]): void {
-    const dog = sprites().dog;
+    const dog = sheet().dog;
     const px = d.x * T;
     const py = d.y * T + 6;
     const img = d.moving ? dog.run[Math.floor(d.run * 14) % dog.run.length] : dog.stand;
@@ -1257,7 +1330,7 @@ export class Renderer {
 
   private drawBurrows(g: Game): void {
     const ctx = this.ctx;
-    const mound = sprites().scenery.burrow;
+    const mound = sheet().scenery.burrow;
     const planning = g.phase === 'planning';
     const counts = g.burrowCounts();
     g.burrows.forEach((b, n) => {
@@ -1424,7 +1497,7 @@ export class Renderer {
   /** The Crater Project going up: survey stakes, then a concrete collar, then the cap hanging ready. */
   private collectCraterWorks(g: Game, list: Drawable[]): void {
     if (g.project <= 0) return;
-    const img = sprites().scenery.crater;
+    const img = sheet().scenery.crater;
     const by = (CRATER.y + CRATER.h) * T;
     const top = by + SCENERY_PLACE.crater.dy - img.height;
     const cx = (CRATER.x + 1) * T;
@@ -1610,7 +1683,7 @@ export class Renderer {
       if (b.maxHp > 1 && b.hp < b.maxHp && g.isSurfaced(b)) {
         const def = BUNNIES[b.kind];
         const w = def.boss ? 44 : 20;
-        const h = sprites().bunnies[b.kind].frames[0].height + (def.boss ? 12 : 6);
+        const h = sheet().bunnies[b.kind].frames[0].height + (def.boss ? 12 : 6);
         this.bar(b.x * T - w / 2, b.y * T + 7 - h, w, b.hp / b.maxHp, def.boss ? '#9dff6b' : '#ff6a5a');
       }
     }
@@ -1637,7 +1710,8 @@ export class Renderer {
     const hoverLot = view.selected?.type === 'land' && view.hoverTile >= 0 ? lotOfTile(view.hoverTile) : -1;
     const bomb = view.selected?.type === 'smoke';
     ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = 'rgb(118, 122, 150)';
+    // land that isn't yours yet sits in shade; in black and white, a sprinkling of dots
+    ctx.fillStyle = mono ? (this.shade ??= this.dots()) : 'rgb(118, 122, 150)';
     for (let y = 0; y < ROWS; y++) {
       let run = -1;
       for (let x = 0; x <= COLS; x++) {
@@ -1962,13 +2036,16 @@ export class Renderer {
     for (const c of this.clouds) {
       c.x += c.v * dt;
       if (c.x - c.r > WORLD_W) c.x = -c.r;
+      if (mono) continue; // soft light only comes out as blotches in black and white
       const grd = ctx.createRadialGradient(c.x, c.y, c.r * 0.2, c.x, c.y, c.r);
       grd.addColorStop(0, 'rgba(20, 40, 60, 0.10)');
       grd.addColorStop(1, 'rgba(20, 40, 60, 0)');
       ctx.fillStyle = grd;
       ctx.fillRect(c.x - c.r, c.y - c.r, c.r * 2, c.r * 2);
     }
-    if (this.dusk > 0.01) {
+    if (mono) {
+      // no tints in black and white
+    } else if (this.dusk > 0.01) {
       ctx.globalCompositeOperation = 'multiply';
       const d = this.dusk;
       const r = Math.round(255 - d * 85);
@@ -1985,6 +2062,7 @@ export class Renderer {
       ctx.globalAlpha = 1;
     }
     if (this.night > 0.01) this.drawNight(g, view);
+    if (mono) return;
     // a gentle vignette
     const v = ctx.createRadialGradient(WORLD_W / 2, WORLD_H / 2, WORLD_H * 0.45, WORLD_W / 2, WORLD_H / 2, WORLD_W * 0.62);
     v.addColorStop(0, 'rgba(0,0,0,0)');
@@ -2153,13 +2231,13 @@ export class Renderer {
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.bg!, 0, 0);
-    const hole = sprites().scenery.burrow;
+    const hole = sheet().scenery.burrow;
     for (const h of c.holes) this.blit(hole, (h.x + 0.5) * T, (h.y + 0.5) * T + 8);
 
     const list: Drawable[] = [];
     const shadows: [number, number, number][] = [];
     this.collectScenery(list, shadows);
-    const sp = sprites();
+    const sp = sheet();
     for (const t of c.targets) {
       const px = t.x * T;
       const py = t.y * T + 7;
@@ -2234,7 +2312,7 @@ const SCENERY_PLACE: Record<Scenery['kind'], { dy: number; shadow: number }> = {
 };
 
 function placementPreview(item: ShopItem): Img | null {
-  const sp = sprites();
+  const sp = sheet();
   if (item.type === 'upgrade' || item.type === 'remove') return null;
   if (item.type === 'crop') return sp.crops[item.kind].ripe;
   if (item.type === 'defense') {

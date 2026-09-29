@@ -7,7 +7,7 @@ import { dailyFor, FARMS, type MapKind } from './world';
 import { ACHIEVEMENTS, type Noticed, satisfied } from './achievements';
 import { Game } from './game';
 import { Renderer, type View } from './render/renderer';
-import { menuBunny } from './render/icons';
+import { menuBunny, setMonoIcons } from './render/icons';
 import { loadSprites } from './render/sprites';
 import * as store from './save';
 import type { Phase, ShopItem } from './types';
@@ -178,6 +178,12 @@ const hooks: UiHooks = {
     settings.autoSkip = on;
     store.saveSettings(settings);
   },
+  monochrome: () => settings.mono,
+  setMonochrome(on: boolean) {
+    settings.mono = on;
+    store.saveSettings(settings);
+    showMono();
+  },
   toggleMute() {
     sfx.muted = !sfx.muted;
     settings.muted = sfx.muted;
@@ -245,7 +251,16 @@ const hooks: UiHooks = {
   },
 };
 
+/** 1993 Mode, or color: the farm, the pictures in the windows, and what little color the windows have. */
+function showMono(): void {
+  renderer.setMonochrome(settings.mono);
+  setMonoIcons(settings.mono);
+  document.body.classList.toggle('mono', settings.mono);
+  document.getElementById('mi-mono')!.classList.toggle('checked', settings.mono);
+}
+
 await loadSprites();
+showMono();
 const ui = new UI(game, hooks);
 
 // ---------------------------------------------------------------- phases
@@ -736,7 +751,7 @@ requestAnimationFrame(frame);
 // A handle for poking at the game from the console / automated screenshots.
 if (import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).bk4 = {
-    game, ui, hooks, view, sfx, music,
+    game, ui, hooks, view, sfx, music, renderer,
     get classic() {
       return classic;
     },

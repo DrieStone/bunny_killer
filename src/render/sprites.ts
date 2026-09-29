@@ -2,6 +2,7 @@
 // and a few things drawn in code (fences, the pebble). Everything becomes a canvas so we can derive
 // hit-flash silhouettes and icons from it.
 import type { BunnyKind, CropKind, Season } from '../config';
+import { monoSprite } from './mono';
 import { PixelGrid } from './pixels';
 
 const files = import.meta.glob('../art/sprites/*.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
@@ -45,6 +46,24 @@ let loaded: SpriteSet | null = null;
 export function sprites(): SpriteSet {
   if (!loaded) throw new Error('sprites not loaded yet');
   return loaded;
+}
+
+let monoSet: SpriteSet | null = null;
+const colorOf = new WeakMap<Img, Img>(); // a black-and-white sprite, back to the one it was made from
+
+/** Every sprite again in black and white, for 1993 Mode. */
+export function monoSprites(): SpriteSet {
+  const mono = <T>(v: T): T => {
+    if (v instanceof HTMLCanvasElement) {
+      const m = monoSprite(v);
+      colorOf.set(m, v);
+      return m as T;
+    }
+    if (Array.isArray(v)) return v.map(mono) as T;
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mono(x)])) as T;
+    return v;
+  };
+  return (monoSet ??= mono(sprites()));
 }
 
 function toCanvas(img: HTMLImageElement): Img {
@@ -549,6 +568,9 @@ function hsl2rgb(h: number, s: number, l: number): [number, number, number] {
 /** Foliage for the season: autumn turns greens gold and red, winter frosts them white. */
 export function forSeason(img: Img, key: string, season: Season): Img {
   if (season === 'spring' || season === 'summer') return img;
+  // black and white: turn the color sprite, then convert that
+  const color = colorOf.get(img);
+  if (color) return monoSprite(forSeason(color, key, season));
   const id = `${key}:${season}`;
   const hit = seasonal.get(id);
   if (hit) return hit;

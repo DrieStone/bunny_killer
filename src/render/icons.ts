@@ -1,18 +1,35 @@
 // Sprite helpers for the HTML side: shop icons, <img> tags, and the tiny menubar bunny.
 import { type CropKind, type DefenseKind, FARM_X0, FARM_Y0, type FarmUpgrade, LOT, LOTS_X, LOTS_Y, START_LOTS, type WeaponKind } from '../config';
 import { FARMS, type MapKind } from '../world';
+import { monoSprite } from './mono';
 import { PixelGrid } from './pixels';
 import { type Img, sprites } from './sprites';
 
 const urls = new WeakMap<Img, string>();
+const sources = new Map<string, Img>(); // each data URL handed out, back to the sprite it shows
+let mono = false;
 
 export function dataURL(img: Img): string {
-  let u = urls.get(img);
+  const shown = mono ? monoSprite(img) : img;
+  let u = urls.get(shown);
   if (!u) {
-    u = img.toDataURL();
-    urls.set(img, u);
+    u = shown.toDataURL();
+    urls.set(shown, u);
+    sources.set(u, img);
   }
   return u;
+}
+
+export const monoIcons = (): boolean => mono;
+
+/** 1993 Mode for the pictures in the windows: new ones come out black and white, and the ones up already change over. */
+export function setMonoIcons(on: boolean): void {
+  if (on === mono) return;
+  mono = on;
+  for (const el of Array.from(document.images)) {
+    const img = sources.get(el.src);
+    if (img) el.src = dataURL(img);
+  }
 }
 
 /** An <img> of a whole sprite at an exact pixel scale. */
